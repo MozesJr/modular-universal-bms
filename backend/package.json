@@ -1,0 +1,22 @@
+{
+  "name": "bms-backend",
+  "version": "1.0.0",
+  "description": "Backend for Modular Universal BMS — Node.js + Express + MQTT + Socket.io",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "lint": "eslint src/"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.4.0",
+    "mqtt": "^5.7.0",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
+}

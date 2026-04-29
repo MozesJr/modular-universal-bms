@@ -1,0 +1,104 @@
+# =============================================================
+# Modular Universal BMS — Docker Compose
+# Services: MongoDB | Mosquitto | Backend (Node.js) | Frontend (Vue)
+# =============================================================
+
+services:
+
+  # ─── 1. MongoDB ───────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: bms_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo/init/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - bms_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── 2. Mosquitto MQTT Broker ─────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: bms_mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"   # MQTT (ESP32 & Backend)
+      - "9001:9001"   # WebSocket (optional: browser MQTT client)
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - bms_network
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "health", "-m", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── 3. Backend — Node.js + Express ──────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bms_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB_NAME}?authSource=admin
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      MQTT_TOPIC_PREFIX: ${MQTT_TOPIC_PREFIX:-bms}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend/src:/app/src   # Hot-reload in development
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - bms_network
+
+  # ─── 4. Frontend — Vue.js (Vite) ──────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:3000}
+    container_name: bms_frontend
+    restart: unless-stopped
+    ports:
+      - "8090:80"   # Nginx serves built Vue app
+    depends_on:
+      - backend
+    networks:
+      - bms_network
+
+# ─── Volumes ──────────────────────────────────────────────
+volumes:
+  mongo_data:
+    driver: local
+  mosquitto_data:
+    driver: local
+  mosquitto_log:
+    driver: local
+
+# ─── Networks ─────────────────────────────────────────────
+networks:
+  bms_network:
+    driver: bridge

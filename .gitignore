@@ -1,0 +1,20 @@
+# Environment
+.env
+*.env.local
+
+# Node
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+
+# Docker volumes (local data)
+mongo/data/
+mosquitto/data/
+mosquitto/log/
+
+# OS
+.DS_Store
+Thumbs.db
