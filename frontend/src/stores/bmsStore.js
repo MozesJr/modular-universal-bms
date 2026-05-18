@@ -1,23 +1,15 @@
-// src/stores/bmsStore.js
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
 import api from "@/services/api";
 
 export const useBmsStore = defineStore("bms", () => {
-  // ─── State ─────────────────────────────────────
   const packs = ref([]);
   const selectedPackId = ref(null);
-
-  // Map: "PACK_001:1" → latest CellReading object
   const cellReadings = ref(new Map());
+  const cellHistory = ref(new Map());
+  const HISTORY_MAX = 60;
+  const alerts = ref([]);
 
-  // Ring-buffer for sparkline charts (last N readings per cell)
-  const cellHistory = ref(new Map()); // "PACK_001:1" → reading[]
-  const HISTORY_MAX = 60; // keep last 60 readings per cell in memory
-
-  const alerts = ref([]); // latest alert events
-
-  // ─── Computed ──────────────────────────────────
   const selectedPack = computed(() =>
     packs.value.find((p) => p.pack_id === selectedPackId.value)
   );
@@ -33,7 +25,6 @@ export const useBmsStore = defineStore("bms", () => {
 
   const hasActiveAlert = computed(() => alerts.value.length > 0);
 
-  // ─── Actions ───────────────────────────────────
   async function fetchPacks() {
     const { data } = await api.get("/packs");
     packs.value = data;
@@ -42,13 +33,10 @@ export const useBmsStore = defineStore("bms", () => {
     }
   }
 
-  /** Called by useSocket when a cell:update event arrives */
   function applyReading(reading) {
     const key = `${reading.pack_id}:${reading.cell_id}`;
-
     cellReadings.value.set(key, reading);
 
-    // Append to sparkline history ring-buffer
     if (!cellHistory.value.has(key)) cellHistory.value.set(key, []);
     const history = cellHistory.value.get(key);
     history.push(reading);

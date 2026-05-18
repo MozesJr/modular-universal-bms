@@ -1,5 +1,5 @@
 # =============================================
-# Frontend Dockerfile — Vue 3 + Vite + Nginx
+# Frontend Dockerfile — Vue Notus + vue-cli + Nginx
 # Modular Universal BMS
 # =============================================
 
@@ -7,15 +7,11 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
-ARG VITE_API_URL
-ARG VITE_SOCKET_URL
-ENV VITE_API_URL=$VITE_API_URL
-ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
-
 COPY package.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 
 COPY . .
+ENV NODE_OPTIONS=--openssl-legacy-provider
 RUN npm run build
 
 # ─── Stage 2: Serve with Nginx ────────────
