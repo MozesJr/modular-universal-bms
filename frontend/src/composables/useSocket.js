@@ -11,7 +11,7 @@ export function useSocket() {
   function connect() {
     if (socket.value?.connected) return;
 
-    const url = process.env.VUE_APP_SOCKET_URL || "";
+    const url = import.meta.env.VITE_SOCKET_URL || "";
     socket.value = io(url, { transports: ["websocket", "polling"] });
 
     socket.value.on("connect", () => {

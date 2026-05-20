@@ -24,13 +24,10 @@
       </div>
     </div>
 
-    <!-- Alerts + pack summary row -->
+    <!-- Alerts + pack summary row (Social Traffic removed) -->
     <div class="flex flex-wrap mt-4">
-      <div class="w-full xl:w-8/12 mb-12 xl:mb-0 px-4">
+      <div class="w-full px-4">
         <card-page-visits />
-      </div>
-      <div class="w-full xl:w-4/12 px-4">
-        <card-social-traffic />
       </div>
     </div>
 
@@ -49,6 +46,7 @@
             :key="`${cell.pack_id}:${cell.cell_id}`"
             :cell="cell"
             :history="bmsStore.getCellHistory(cell.pack_id, cell.cell_id)"
+            :pack-config="bmsStore.selectedPack"
           />
         </div>
         <div v-else class="text-blueGray-400 text-center py-16 border border-dashed border-blueGray-200 rounded-xl">

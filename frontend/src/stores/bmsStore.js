@@ -42,7 +42,7 @@ export const useBmsStore = defineStore("bms", () => {
     history.push(reading);
     if (history.length > HISTORY_MAX) history.shift();
 
-    if (reading.alerts) {
+    if (reading.alerts && reading.alerts.length) {
       alerts.value.unshift(reading);
       if (alerts.value.length > 50) alerts.value.pop();
     }
@@ -52,10 +52,24 @@ export const useBmsStore = defineStore("bms", () => {
     return cellHistory.value.get(`${packId}:${cellId}`) || [];
   }
 
+  async function createPack(packData) {
+    const { data } = await api.post("/packs", packData);
+    packs.value.push(data);
+    return data;
+  }
+
+  async function updatePack(packId, packData) {
+    const { data } = await api.put(`/packs/${packId}`, packData);
+    const idx = packs.value.findIndex((p) => p.pack_id === packId);
+    if (idx !== -1) packs.value.splice(idx, 1, data);
+    return data;
+  }
+
   return {
     packs, selectedPackId, selectedPack,
     cellReadings, cellHistory, alerts,
     cellsForPack, hasActiveAlert,
     fetchPacks, applyReading, getCellHistory,
+    createPack, updatePack,
   };
 });

@@ -6,13 +6,11 @@
         class="flex flex-wrap items-center md:justify-between justify-center"
       >
         <div class="w-full md:w-4/12 px-4">
-          <div
-            class="text-sm text-blueGray-500 font-semibold py-1 text-center md:text-left"
-          >
-            Copyright © {{ date }}
+          <div class="text-sm text-blueGray-500 font-semibold py-1">
+            Copyright © {{ date }} BMS Capstone V {{ version }}. by
             <a
               href="https://github.com/MozesJr"
-              class="text-white hover:text-blueGray-300 text-sm font-semibold py-1"
+              class="text-black hover:text-blueGray-300 text-sm font-semibold py-1"
             >
               Mozes Sapari
             </a>
@@ -27,6 +25,7 @@ export default {
   data() {
     return {
       date: new Date().getFullYear(),
+      version: process.env.VUE_APP_VERSION || "1.0",
     };
   },
 };

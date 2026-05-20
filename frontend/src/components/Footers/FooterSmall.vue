@@ -14,7 +14,7 @@
           <div
             class="text-sm text-blueGray-500 font-semibold py-1 text-center md:text-left"
           >
-            Copyright © {{ date }}
+            Copyright © {{ date }} BMS Capstone V {{ version }}. by
             <a
               href="https://github.com/MozesJr"
               class="text-white hover:text-blueGray-300 text-sm font-semibold py-1"
@@ -33,6 +33,7 @@ export default {
   data() {
     return {
       date: new Date().getFullYear(),
+      version: process.env.VUE_APP_VERSION || "1.0",
     };
   },
   props: {

@@ -22,6 +22,8 @@ const batteryPackSchema = new mongoose.Schema(
     max_temp_celsius:  { type: Number, default: 60 },    // °C — thermal runaway risk
     max_current_amps:  { type: Number, default: 20 },    // A
 
+    // Nominal pack capacity in Ah – used for SoC estimation.
+    capacity_ah: { type: Number, default: 100 },
     created_at: { type: Date, default: Date.now },
   },
   { versionKey: false }

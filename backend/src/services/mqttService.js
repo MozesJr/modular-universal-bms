@@ -19,6 +19,8 @@ const BatteryPack = require("../models/BatteryPack");
 
 // In-memory cache of pack configurations to avoid repeated DB lookups
 const packConfigCache = new Map();
+// Cache for previous cell reading (timestamp & SoC) used in Coulomb Counting
+const cellStateCache = new Map();
 
 /**
  * Fetch (and cache) battery pack config for threshold checking.
@@ -35,17 +37,21 @@ async function getPackConfig(packId) {
  * Evaluate whether any metric breaches safety thresholds.
  * Returns true if an alert should be raised.
  */
-function evaluateAlerts(metrics, packConfig) {
-  if (!packConfig) return false;
+// Determine specific alert types based on pack thresholds.
+function getAlertTypes(metrics, packConfig) {
+  const types = [];
+  if (!packConfig) return types;
 
   const { voltage, current, temperature } = metrics;
 
-  if (voltage > packConfig.max_voltage) return true;
-  if (voltage < packConfig.min_voltage) return true;
-  if (temperature !== null && temperature > packConfig.max_temp_celsius) return true;
-  if (current !== null && Math.abs(current) > packConfig.max_current_amps) return true;
+  if (voltage > packConfig.max_voltage) types.push("overcharge");
+  if (voltage < packConfig.min_voltage) types.push("over_discharge");
+  if (temperature !== null && temperature > packConfig.max_temp_celsius)
+    types.push("thermal_runaway");
+  if (current !== null && Math.abs(current) > packConfig.max_current_amps)
+    types.push("over_current");
 
-  return false;
+  return types;
 }
 
 /**
@@ -89,16 +95,32 @@ function initMQTT(io) {
       // ── Parse payload ──────────────────────────
       const payload = JSON.parse(rawPayload.toString());
       const metrics = {
-        voltage:     parseFloat(payload.voltage)     || 0,
-        current:     parseFloat(payload.current)     || 0,
+        voltage: parseFloat(payload.voltage) || 0,
+        current: parseFloat(payload.current) || 0,
         temperature: parseFloat(payload.temperature) || null,
-        soc:         parseFloat(payload.soc)         || null,
-        soh:         parseFloat(payload.soh)         || null,
+        soc: parseFloat(payload.soc) || null,
+        soh: parseFloat(payload.soh) || null,
       };
 
       // ── Alert evaluation ───────────────────────
       const packConfig = await getPackConfig(pack_id);
-      const alerts = evaluateAlerts(metrics, packConfig);
+      // Compute SoC using Coulomb Counting if prior state exists.
+      const cacheKey = `${pack_id}:${cell_id}`;
+      const now = new Date();
+      let newSoc = metrics.soc;
+      if (cellStateCache.has(cacheKey) && typeof metrics.current === "number") {
+        const { timestamp: prevTs, soc: prevSoc } =
+          cellStateCache.get(cacheKey);
+        const deltaSec = (now - prevTs) / 1000;
+        const { estimateSoc } = require("./bmsAlgorithm");
+        const capacityAh = (packConfig && packConfig.capacity_ah) || 100;
+        newSoc = estimateSoc(prevSoc, metrics.current, deltaSec, capacityAh);
+      }
+      // Update cache with latest SoC
+      cellStateCache.set(cacheKey, { timestamp: now, soc: newSoc });
+      metrics.soc = newSoc;
+
+      const alertTypes = getAlertTypes(metrics, packConfig);
 
       // ── Persist to MongoDB ─────────────────────
       const reading = await CellReading.create({
@@ -106,7 +128,7 @@ function initMQTT(io) {
         pack_id,
         cell_id,
         metrics,
-        alerts,
+        alerts: alertTypes,
         raw: payload,
       });
 
@@ -116,17 +138,25 @@ function initMQTT(io) {
         cell_id,
         timestamp: reading.timestamp,
         metrics,
-        alerts,
+        alerts: alertTypes,
       };
 
       io.emit("cell:update", event);
 
-      if (alerts) {
+      if (alertTypes && alertTypes.length) {
         io.emit("cell:alert", event);
-        console.warn(`🚨 ALERT — Pack: ${pack_id}, Cell: ${cell_id}`, metrics);
+        console.warn(
+          `🚨 ALERT — Pack: ${pack_id}, Cell: ${cell_id}`,
+          alertTypes,
+        );
       }
     } catch (err) {
-      console.error("❌ MQTT message processing error:", err.message, "Topic:", topic);
+      console.error(
+        "❌ MQTT message processing error:",
+        err.message,
+        "Topic:",
+        topic,
+      );
     }
   });
 
@@ -137,4 +167,14 @@ function initMQTT(io) {
   return client;
 }
 
-module.exports = { initMQTT };
+/**
+ * Remove a pack from the in-memory config cache.
+ * Call this whenever a pack's configuration is updated via the API
+ * so the next MQTT message fetches fresh thresholds from MongoDB.
+ * @param {string} packId
+ */
+function invalidatePackCache(packId) {
+  packConfigCache.delete(packId);
+}
+
+module.exports = { initMQTT, invalidatePackCache };

@@ -38,15 +38,19 @@ export default {
   methods: {
     buildData() {
       const cells = this.bmsStore.cellsForPack;
+      if (!cells.length) {
+        return { labels: [], data: [], colors: [] };
+      }
+      const avg = cells.reduce((sum, c) => sum + (c.metrics?.soc ?? 0), 0) / cells.length;
+      const color = (() => {
+        if (avg > 60) return "#48bb78";
+        if (avg > 30) return "#f6ad55";
+        return "#fc8181";
+      })();
       return {
-        labels: cells.map((c) => `Cell ${c.cell_id}`),
-        data: cells.map((c) => c.metrics?.soc ?? 0),
-        colors: cells.map((c) => {
-          const s = c.metrics?.soc ?? 0;
-          if (s > 60) return "#48bb78";
-          if (s > 30) return "#f6ad55";
-          return "#fc8181";
-        }),
+        labels: ["Average"],
+        data: [Math.round(avg * 10) / 10],
+        colors: [color],
       };
     },
     initChart() {

@@ -41,18 +41,24 @@ import VoltageSparkline from "./VoltageSparkline.vue";
 const props = defineProps({
   cell: { type: Object, required: true },
   history: { type: Array, default: () => [] },
+  // Pack-level thresholds from MongoDB — avoids hardcoded LiFePO4 values.
+  // Falls back to safe LiFePO4 defaults only when packConfig is unavailable.
+  packConfig: { type: Object, default: () => null },
 });
 
 const fmt = (v, dec) => (v != null ? Number(v).toFixed(dec) : "—");
 
 const isVoltageWarn = computed(() => {
   const v = props.cell.metrics.voltage;
-  return v > 3.65 || v < 2.5;
+  const maxV = props.packConfig?.max_voltage ?? 3.65;
+  const minV = props.packConfig?.min_voltage ?? 2.5;
+  return v > maxV || v < minV;
 });
 
 const isTempWarn = computed(() => {
   const t = props.cell.metrics.temperature;
-  return t != null && t > 60;
+  const maxT = props.packConfig?.max_temp_celsius ?? 60;
+  return t != null && t > maxT;
 });
 
 const socColor = computed(() => {

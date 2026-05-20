@@ -42,7 +42,8 @@ const cellReadingSchema = new mongoose.Schema(
 
     // ─── Alert flag ──────────────────────────────
     // Set true when any metric breaches the pack's configured thresholds
-    alerts: { type: Boolean, default: false },
+    // Array of alert type strings (e.g., ['overcharge','thermal_runaway'])
+    alerts: { type: [String], default: [] },
 
     // Raw payload preserved for debugging/schema evolution
     raw: { type: mongoose.Schema.Types.Mixed },

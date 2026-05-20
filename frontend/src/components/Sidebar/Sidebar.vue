@@ -39,7 +39,9 @@
         v-bind:class="collapseShow"
       >
         <!-- Mobile collapse header -->
-        <div class="md:min-w-full md:hidden block pb-4 mb-4 border-b border-solid border-blueGray-200">
+        <div
+          class="md:min-w-full md:hidden block pb-4 mb-4 border-b border-solid border-blueGray-200"
+        >
           <div class="flex flex-wrap">
             <div class="w-6/12">
               <router-link
@@ -65,31 +67,62 @@
         <hr class="my-4 md:min-w-full" />
 
         <!-- Section heading -->
-        <h6 class="md:min-w-full text-blueGray-500 text-xs uppercase font-bold block pt-1 pb-4 no-underline">
+        <h6
+          class="md:min-w-full text-blueGray-500 text-xs uppercase font-bold block pt-1 pb-4 no-underline"
+        >
           BMS
         </h6>
 
         <!-- Nav links -->
         <ul class="md:flex-col md:min-w-full flex flex-col list-none">
           <li class="items-center">
-            <router-link to="/admin/dashboard" v-slot="{ href, navigate, isActive }">
-              <a :href="href" @click="navigate"
+            <router-link
+              to="/admin/dashboard"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
                 class="text-xs uppercase py-3 font-bold block"
-                :class="[isActive ? 'text-emerald-500 hover:text-emerald-600' : 'text-blueGray-700 hover:text-blueGray-500']">
-                <i class="fas fa-tv mr-2 text-sm" :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"></i>
+                :class="[
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500',
+                ]"
+              >
+                <i
+                  class="fas fa-tv mr-2 text-sm"
+                  :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"
+                ></i>
                 Dashboard
               </a>
             </router-link>
           </li>
 
           <li class="items-center">
-            <router-link to="/admin/alerts" v-slot="{ href, navigate, isActive }">
-              <a :href="href" @click="navigate"
+            <router-link
+              to="/admin/alerts"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
                 class="text-xs uppercase py-3 font-bold block"
-                :class="[isActive ? 'text-emerald-500 hover:text-emerald-600' : 'text-blueGray-700 hover:text-blueGray-500']">
-                <i class="fas fa-exclamation-triangle mr-2 text-sm" :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"></i>
+                :class="[
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500',
+                ]"
+              >
+                <i
+                  class="fas fa-exclamation-triangle mr-2 text-sm"
+                  :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"
+                ></i>
                 Alerts
-                <span v-if="alertCount > 0" class="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
+                <span
+                  v-if="alertCount > 0"
+                  class="ml-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5"
+                >
                   {{ alertCount }}
                 </span>
               </a>
@@ -97,17 +130,30 @@
           </li>
 
           <li class="items-center">
-            <router-link to="/admin/config" v-slot="{ href, navigate, isActive }">
-              <a :href="href" @click="navigate"
+            <router-link
+              to="/admin/config"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
                 class="text-xs uppercase py-3 font-bold block"
-                :class="[isActive ? 'text-emerald-500 hover:text-emerald-600' : 'text-blueGray-700 hover:text-blueGray-500']">
-                <i class="fas fa-battery-full mr-2 text-sm" :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"></i>
+                :class="[
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500',
+                ]"
+              >
+                <i
+                  class="fas fa-battery-full mr-2 text-sm"
+                  :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"
+                ></i>
                 Pack Config
               </a>
             </router-link>
           </li>
 
-          <li class="items-center">
+          <!-- <li class="items-center">
             <router-link to="/admin/settings" v-slot="{ href, navigate, isActive }">
               <a :href="href" @click="navigate"
                 class="text-xs uppercase py-3 font-bold block"
@@ -116,7 +162,7 @@
                 Settings
               </a>
             </router-link>
-          </li>
+          </li> -->
         </ul>
 
         <!-- Divider + Logout -->
@@ -133,7 +179,6 @@
             </button>
           </li>
         </ul>
-
       </div>
     </div>
   </nav>
