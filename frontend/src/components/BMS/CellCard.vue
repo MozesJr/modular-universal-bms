@@ -1,77 +1,116 @@
-/* eslint-disable */
 <template>
   <div
-    :class="[
-      'rounded-xl border p-4 flex flex-col gap-3 transition-all duration-300 bg-white shadow-sm',
-      cell.alerts ? 'border-red-400' : 'border-blueGray-200',
-    ]"
+    class="bg-white border border-blueGray-200 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 flex flex-col justify-between h-full overflow-hidden"
   >
-    <div class="flex justify-between items-center">
-      <span class="font-semibold text-sm text-blueGray-700">Cell {{ cell.cell_id }}</span>
-      <span v-if="cell.alerts" class="text-xs text-red-500 font-bold">&#9888; ALERT</span>
-      <span v-else class="text-xs text-emerald-500">&#9679; OK</span>
+    <div
+      class="px-4 pt-4 pb-2 flex justify-between items-center bg-blueGray-50/50 border-b border-blueGray-100"
+    >
+      <div class="flex items-center gap-1.5">
+        <i class="fas fa-battery-three-quarters text-emerald-500 text-xs"></i>
+        <span class="text-xs font-bold text-blueGray-700"
+          >Cell {{ cell.cell_id }}</span
+        >
+      </div>
+      <span
+        class="text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-600 uppercase tracking-wide"
+      >
+        OK
+      </span>
     </div>
 
-    <div class="grid grid-cols-2 gap-2">
-      <MetricBadge label="Voltage" :value="fmt(cell.metrics.voltage, 3)" unit="V" :warn="isVoltageWarn" />
-      <MetricBadge label="Current" :value="fmt(cell.metrics.current, 2)" unit="A" />
-      <MetricBadge label="Temp" :value="fmt(cell.metrics.temperature, 1)" unit="°C" :warn="isTempWarn" />
-      <MetricBadge label="SoC" :value="fmt(cell.metrics.soc, 1)" unit="%" />
-    </div>
-
-    <div class="w-full bg-blueGray-100 rounded-full h-1.5">
+    <div class="p-4 flex-1 flex flex-col justify-between gap-3">
       <div
-        class="h-1.5 rounded-full transition-all duration-500"
-        :class="socColor"
-        :style="{ width: `${Math.min(cell.metrics.soc || 0, 100)}%` }"
-      />
+        class="grid grid-cols-2 gap-2 border-b border-blueGray-50 pb-2.5 text-center"
+      >
+        <div>
+          <p
+            class="text-[10px] font-bold text-blueGray-400 uppercase tracking-tight"
+          >
+            Voltage
+          </p>
+          <p class="text-base font-black text-blueGray-700 font-mono mt-0.5">
+            {{ cell.voltage ? cell.voltage.toFixed(3) : "0.000"
+            }}<span class="text-xs font-normal text-blueGray-400 ml-0.5"
+              >V</span
+            >
+          </p>
+        </div>
+        <div>
+          <p
+            class="text-[10px] font-bold text-blueGray-400 uppercase tracking-tight"
+          >
+            Current
+          </p>
+          <p class="text-base font-black text-blueGray-700 font-mono mt-0.5">
+            {{ cell.current ? cell.current.toFixed(2) : "0.00"
+            }}<span class="text-xs font-normal text-blueGray-400 ml-0.5"
+              >A</span
+            >
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2 text-center">
+        <div>
+          <p class="text-[9px] font-bold text-blueGray-400 uppercase">Temp</p>
+          <p class="text-xs font-bold text-blueGray-600 font-mono mt-0.5">
+            {{ cell.temperature ?? 0
+            }}<span class="text-[10px] font-normal text-blueGray-400 ml-0.5"
+              >°C</span
+            >
+          </p>
+        </div>
+        <div>
+          <p class="text-[9px] font-bold text-blueGray-400 uppercase">SoC</p>
+          <p class="text-xs font-bold text-blueGray-600 font-mono mt-0.5">
+            {{ cell.soc ?? 0
+            }}<span class="text-[10px] font-normal text-blueGray-400 ml-0.5"
+              >%</span
+            >
+          </p>
+        </div>
+      </div>
     </div>
 
-    <VoltageSparkline :history="history" />
+    <div
+      class="bg-slate-50 border-t border-blueGray-100 p-2 text-center flex flex-col gap-1 justify-center min-h-[50px]"
+    >
+      <div class="w-full flex items-center justify-center opacity-70 h-5 px-2">
+        <svg
+          class="w-full h-full stroke-emerald-500 fill-none"
+          viewBox="0 0 100 20"
+          stroke-width="1.5"
+        >
+          <polyline points="0,15 15,10 30,18 45,5 60,12 75,15 90,4 100,10" />
+        </svg>
+      </div>
 
-    <span class="text-xs text-blueGray-300 text-right">{{ timeAgo(cell.timestamp) }}</span>
+      <div
+        class="flex justify-between items-center px-2 text-[9px] text-blueGray-400 font-mono"
+      >
+        <span>V1.1 ACTIVE</span>
+        <span>0s ago</span>
+      </div>
+    </div>
   </div>
 </template>
 
-<script setup>
-import { computed } from "vue";
-import MetricBadge from "./MetricBadge.vue";
-import VoltageSparkline from "./VoltageSparkline.vue";
-
-const props = defineProps({
-  cell: { type: Object, required: true },
-  history: { type: Array, default: () => [] },
-  // Pack-level thresholds from MongoDB — avoids hardcoded LiFePO4 values.
-  // Falls back to safe LiFePO4 defaults only when packConfig is unavailable.
-  packConfig: { type: Object, default: () => null },
-});
-
-const fmt = (v, dec) => (v != null ? Number(v).toFixed(dec) : "—");
-
-const isVoltageWarn = computed(() => {
-  const v = props.cell.metrics.voltage;
-  const maxV = props.packConfig?.max_voltage ?? 3.65;
-  const minV = props.packConfig?.min_voltage ?? 2.5;
-  return v > maxV || v < minV;
-});
-
-const isTempWarn = computed(() => {
-  const t = props.cell.metrics.temperature;
-  const maxT = props.packConfig?.max_temp_celsius ?? 60;
-  return t != null && t > maxT;
-});
-
-const socColor = computed(() => {
-  const s = props.cell.metrics.soc || 0;
-  if (s > 60) return "bg-emerald-500";
-  if (s > 30) return "bg-yellow-400";
-  return "bg-red-500";
-});
-
-function timeAgo(ts) {
-  if (!ts) return "";
-  const sec = Math.floor((Date.now() - new Date(ts)) / 1000);
-  if (sec < 60) return `${sec}s ago`;
-  return `${Math.floor(sec / 60)}m ago`;
-}
+<script>
+export default {
+  name: "CellCard",
+  props: {
+    cell: {
+      type: Object,
+      required: true,
+    },
+    history: {
+      type: Array,
+      default: () => [],
+    },
+    packConfig: {
+      type: Object,
+      default: null,
+    },
+  },
+};
 </script>

@@ -8,9 +8,7 @@
           <h6 class="uppercase text-blueGray-100 mb-1 text-xs font-semibold">
             Real-time
           </h6>
-          <h2 class="text-white text-xl font-semibold">
-            Cell Voltage History
-          </h2>
+          <h2 class="text-white text-xl font-semibold">Cell Voltage History</h2>
         </div>
         <div class="text-xs text-blueGray-300">
           {{ bmsStore.selectedPackId || "No pack selected" }}
@@ -30,8 +28,14 @@ import Chart from "chart.js";
 import { useBmsStore } from "@/stores/bmsStore";
 
 const COLORS = [
-  "#4c51bf", "#ed64a6", "#48bb78", "#f6ad55",
-  "#63b3ed", "#fc8181", "#b794f4", "#68d391",
+  "#4c51bf",
+  "#ed64a6",
+  "#48bb78",
+  "#f6ad55",
+  "#63b3ed",
+  "#fc8181",
+  "#b794f4",
+  "#68d391",
 ];
 
 export default {
@@ -72,7 +76,8 @@ export default {
       const datasets = keys.map((k, idx) => {
         const cellId = k.split(":")[1];
         const history = this.bmsStore.cellHistory.get(k) || [];
-        const padded = Array(maxLen - history.length).fill(null)
+        const padded = Array(maxLen - history.length)
+          .fill(null)
           .concat(history.map((r) => r.metrics?.voltage ?? null));
         return {
           label: `Cell ${cellId}`,
@@ -97,15 +102,37 @@ export default {
           maintainAspectRatio: false,
           responsive: true,
           animation: { duration: 0 },
-          legend: { labels: { fontColor: "white" }, align: "end", position: "bottom" },
+          legend: {
+            labels: { fontColor: "white" },
+            align: "end",
+            position: "bottom",
+          },
           tooltips: { mode: "index", intersect: false },
           scales: {
-            xAxes: [{ ticks: { fontColor: "rgba(255,255,255,.7)" }, gridLines: { display: false } }],
-            yAxes: [{
-              ticks: { fontColor: "rgba(255,255,255,.7)" },
-              scaleLabel: { display: true, labelString: "Voltage (V)", fontColor: "white" },
-              gridLines: { color: "rgba(255,255,255,.15)", drawBorder: false },
-            }],
+            xAxes: [
+              {
+                ticks: { fontColor: "rgba(255,255,255,.7)" },
+                gridLines: { display: false },
+              },
+            ],
+            yAxes: [
+              {
+                ticks: {
+                  fontColor: "rgba(255,255,255,.7)",
+                  suggestedMin: 2.0, // Batas bawah aman visualisasi LiFePO4
+                  suggestedMax: 4.5, // Batas atas aman visualisasi LiFePO4
+                },
+                scaleLabel: {
+                  display: true,
+                  labelString: "Voltage (V)",
+                  fontColor: "white",
+                },
+                gridLines: {
+                  color: "rgba(255,255,255,.15)",
+                  drawBorder: false,
+                },
+              },
+            ],
           },
         },
       });

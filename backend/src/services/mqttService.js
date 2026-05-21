@@ -16,6 +16,7 @@
 const mqtt = require("mqtt");
 const CellReading = require("../models/CellReading");
 const BatteryPack = require("../models/BatteryPack");
+const AlertLog = require("../models/AlertLog");
 
 // In-memory cache of pack configurations to avoid repeated DB lookups
 const packConfigCache = new Map();
@@ -145,10 +146,16 @@ function initMQTT(io) {
 
       if (alertTypes && alertTypes.length) {
         io.emit("cell:alert", event);
-        console.warn(
-          `🚨 ALERT — Pack: ${pack_id}, Cell: ${cell_id}`,
-          alertTypes,
-        );
+        console.warn(`🚨 ALERT — Pack: ${pack_id}, Cell: ${cell_id}`, alertTypes);
+        // Persist each alert type as a separate AlertLog entry
+        for (const type of alertTypes) {
+          await AlertLog.create({
+            pack_id,
+            cell_id,
+            type,
+            timestamp: reading.timestamp,
+          });
+        }
       }
     } catch (err) {
       console.error(

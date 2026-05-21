@@ -9,11 +9,11 @@ export const useBmsStore = defineStore("bms", () => {
   const cellHistory = ref(new Map());
   const HISTORY_MAX = 60;
   const alerts = ref([]);
+  const alertLogs = ref([]);
 
   const selectedPack = computed(() =>
     packs.value.find((p) => p.pack_id === selectedPackId.value)
   );
-
   const cellsForPack = computed(() => {
     if (!selectedPackId.value) return [];
     const entries = [];
@@ -65,11 +65,34 @@ export const useBmsStore = defineStore("bms", () => {
     return data;
   }
 
+  async function fetchAlertLogs() {
+    const { data } = await api.get('/alerts');
+    alertLogs.value = data;
+  }
+
+  async function fetchCellHistory(packId, cellId, hours = 1) {
+    const to = new Date();
+    const from = new Date(to - hours * 3600 * 1000);
+    const { data } = await api.get(`/cells/${packId}/${cellId}/history`, {
+      params: { from: from.toISOString(), to: to.toISOString() },
+    });
+    // data.data holds the array of readings
+    const key = `${packId}:${cellId}`;
+    cellHistory.value.set(key, data.data || []);
+  }
+
+  async function acknowledgeAlert(alertId) {
+    const { data } = await api.put(`/alerts/${alertId}/acknowledge`);
+    const idx = alertLogs.value.findIndex((a) => a._id === alertId || a.id === alertId);
+    if (idx !== -1) alertLogs.value.splice(idx, 1, data);
+  }
+
   return {
     packs, selectedPackId, selectedPack,
-    cellReadings, cellHistory, alerts,
+    cellReadings, cellHistory, alerts, alertLogs,
     cellsForPack, hasActiveAlert,
-    fetchPacks, applyReading, getCellHistory,
+    fetchPacks, fetchAlertLogs, acknowledgeAlert,
+    applyReading, getCellHistory,
     createPack, updatePack,
   };
 });
