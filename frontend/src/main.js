@@ -18,6 +18,8 @@ import Tables from "@/views/admin/Tables.vue";
 import Maps from "@/views/admin/Maps.vue";
 import Alerts from "@/views/admin/Alerts.vue";
 import PackConfig from "@/views/admin/PackConfig.vue";
+import PackDetail from "@/views/admin/PackDetail.vue";
+import PackForm from "@/views/admin/PackForm.vue";
 
 // auth views
 import Login from "@/views/auth/Login.vue";
@@ -36,6 +38,8 @@ const routes = [
       { path: "/admin/dashboard", component: Dashboard },
       { path: "/admin/alerts", component: Alerts },
       { path: "/admin/config", component: PackConfig },
+      { path: "/admin/pack-form", component: PackForm },
+      { path: "/admin/pack-detail", component: PackDetail },
       { path: "/admin/settings", component: Settings },
       { path: "/admin/tables", component: Tables },
       { path: "/admin/maps", component: Maps },

@@ -75,6 +75,7 @@
 
         <!-- Nav links -->
         <ul class="md:flex-col md:min-w-full flex flex-col list-none">
+          <!-- Dashboard -->
           <li class="items-center">
             <router-link
               to="/admin/dashboard"
@@ -99,6 +100,39 @@
             </router-link>
           </li>
 
+          <!-- Pack Detail (Drill-down BMS) — MENU BARU -->
+          <li class="items-center">
+            <router-link
+              to="/admin/pack-detail"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
+                class="text-xs uppercase py-3 font-bold flex items-center"
+                :class="[
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500',
+                ]"
+              >
+                <i
+                  class="fas fa-bolt mr-2 text-sm"
+                  :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"
+                ></i>
+                Pack Detail
+                <!-- Alert badge -->
+                <span
+                  v-if="alertCount > 0"
+                  class="ml-2 bg-red-500 text-white text-[9px] font-extrabold rounded-full px-1.5 py-0.5 min-w-[18px] text-center"
+                >
+                  {{ alertCount }}
+                </span>
+              </a>
+            </router-link>
+          </li>
+
+          <!-- Alerts -->
           <li class="items-center">
             <router-link
               to="/admin/alerts"
@@ -129,6 +163,7 @@
             </router-link>
           </li>
 
+          <!-- Pack Config -->
           <li class="items-center">
             <router-link
               to="/admin/config"
@@ -152,17 +187,6 @@
               </a>
             </router-link>
           </li>
-
-          <!-- <li class="items-center">
-            <router-link to="/admin/settings" v-slot="{ href, navigate, isActive }">
-              <a :href="href" @click="navigate"
-                class="text-xs uppercase py-3 font-bold block"
-                :class="[isActive ? 'text-emerald-500 hover:text-emerald-600' : 'text-blueGray-700 hover:text-blueGray-500']">
-                <i class="fas fa-tools mr-2 text-sm" :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"></i>
-                Settings
-              </a>
-            </router-link>
-          </li> -->
         </ul>
 
         <!-- Divider + Logout -->
@@ -196,7 +220,7 @@ export default {
   setup() {
     const bmsStore = useBmsStore();
     const alertCount = computed(() => bmsStore.alerts.length);
-    return { alertCount };
+    return { alertCount, bmsStore };
   },
   data() {
     return { collapseShow: "hidden" };
