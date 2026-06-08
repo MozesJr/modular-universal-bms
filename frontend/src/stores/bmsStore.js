@@ -4,26 +4,30 @@ import api from "@/services/api";
 
 export const useBmsStore = defineStore("bms", () => {
   const packs = ref([]);
-  const bmsModels = ref([]); // ← BARU: list BmsModel
+  const bmsModels = ref([]);
   const selectedPackId = ref(null);
-  const cellReadings = ref(new Map());
-  const cellHistory = ref(new Map());
-  const HISTORY_MAX = 60;
   const alerts = ref([]);
   const alertLogs = ref([]);
+  const HISTORY_MAX = 60;
 
-  // ── Computed ─────────────────────────────────────────────
+  // ── FIX: Ganti Map dengan reactive object biasa ────────────
+  // Map tidak reactive di Vue 3 ref() — gunakan plain object
+  // key: "PACK_001:1", value: reading object
+  const cellReadings = ref({}); // { "PACK_001:1": {...}, ... }
+  const cellHistory = ref({}); // { "PACK_001:1": [...], ... }
+
+  // ── Computed ──────────────────────────────────────────────
   const selectedPack = computed(() =>
     packs.value.find((p) => p.pack_id === selectedPackId.value),
   );
 
   const cellsForPack = computed(() => {
     if (!selectedPackId.value) return [];
-    const entries = [];
-    for (const [key, reading] of cellReadings.value.entries()) {
-      if (key.startsWith(selectedPackId.value + ":")) entries.push(reading);
-    }
-    return entries.sort((a, b) => a.cell_id - b.cell_id);
+    const prefix = selectedPackId.value + ":";
+    return Object.entries(cellReadings.value)
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, reading]) => reading)
+      .sort((a, b) => a.cell_id - b.cell_id);
   });
 
   const hasActiveAlert = computed(() => alerts.value.length > 0);
@@ -66,12 +70,16 @@ export const useBmsStore = defineStore("bms", () => {
   async function deletePack(packId) {
     await api.delete(`/packs/${packId}`);
     packs.value = packs.value.filter((p) => p.pack_id !== packId);
-    for (const key of [...cellReadings.value.keys()]) {
-      if (key.startsWith(packId + ":")) cellReadings.value.delete(key);
-    }
-    for (const key of [...cellHistory.value.keys()]) {
-      if (key.startsWith(packId + ":")) cellHistory.value.delete(key);
-    }
+
+    // Hapus readings & history terkait pack ini
+    const keysToDelete = Object.keys(cellReadings.value).filter((k) =>
+      k.startsWith(packId + ":"),
+    );
+    keysToDelete.forEach((k) => {
+      delete cellReadings.value[k];
+      delete cellHistory.value[k];
+    });
+
     if (selectedPackId.value === packId) {
       selectedPackId.value = packs.value.length ? packs.value[0].pack_id : null;
     }
@@ -81,7 +89,7 @@ export const useBmsStore = defineStore("bms", () => {
   function applyReading(reading) {
     const key = `${reading.pack_id}:${reading.cell_id}`;
 
-    // Flatten untuk kompabilitas dengan CellCard (akses langsung .voltage dll)
+    // Flatten metrics ke root untuk akses mudah di template
     const flat = {
       ...reading,
       voltage: reading.metrics?.voltage ?? 0,
@@ -92,13 +100,17 @@ export const useBmsStore = defineStore("bms", () => {
       state: reading.state ?? "normal",
     };
 
-    cellReadings.value.set(key, flat);
+    // Reactive assignment ke plain object
+    cellReadings.value[key] = flat;
 
-    if (!cellHistory.value.has(key)) cellHistory.value.set(key, []);
-    const history = cellHistory.value.get(key);
-    history.push(reading);
-    if (history.length > HISTORY_MAX) history.shift();
+    // History
+    if (!cellHistory.value[key]) cellHistory.value[key] = [];
+    cellHistory.value[key].push(reading);
+    if (cellHistory.value[key].length > HISTORY_MAX) {
+      cellHistory.value[key].shift();
+    }
 
+    // Alert
     if (reading.alerts && reading.alerts.length) {
       alerts.value.unshift({ ...flat, timestamp: reading.timestamp });
       if (alerts.value.length > 50) alerts.value.pop();
@@ -106,7 +118,7 @@ export const useBmsStore = defineStore("bms", () => {
   }
 
   function getCellHistory(packId, cellId) {
-    return cellHistory.value.get(`${packId}:${cellId}`) || [];
+    return cellHistory.value[`${packId}:${cellId}`] || [];
   }
 
   // ── Alerts ────────────────────────────────────────────────
@@ -123,7 +135,6 @@ export const useBmsStore = defineStore("bms", () => {
     if (idx !== -1) alertLogs.value.splice(idx, 1, data);
   }
 
-  // ── Historical ────────────────────────────────────────────
   async function fetchCellHistory(packId, cellId, hours = 1) {
     const to = new Date();
     const from = new Date(to - hours * 3600 * 1000);
@@ -131,7 +142,7 @@ export const useBmsStore = defineStore("bms", () => {
       params: { from: from.toISOString(), to: to.toISOString() },
     });
     const key = `${packId}:${cellId}`;
-    cellHistory.value.set(key, data.data || []);
+    cellHistory.value[key] = data.data || [];
   }
 
   return {

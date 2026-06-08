@@ -22,7 +22,7 @@
         <div class="w-full lg:w-3/12 xl:w-3/12 px-4 mb-4">
           <card-stats
             statSubtitle="Active Cells"
-            :statTitle="String(totalActiveCells)"
+            :statTitle="String(activeCellCount)"
             statArrow="up"
             statPercent=""
             statPercentColor="text-emerald-500"
@@ -48,7 +48,7 @@
         <div class="w-full lg:w-3/12 xl:w-3/12 px-4 mb-4">
           <card-stats
             statSubtitle="Connection"
-            :statTitle="totalActiveCells > 0 ? 'Live' : 'Standby'"
+            :statTitle="activeCellCount > 0 ? 'Live' : 'Standby'"
             statArrow="up"
             statPercent=""
             statPercentColor="text-emerald-500"

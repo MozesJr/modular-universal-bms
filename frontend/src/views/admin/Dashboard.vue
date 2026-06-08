@@ -1,8 +1,6 @@
 <template>
   <div class="flex flex-wrap mt-4">
-    <!-- ══════════════════════════════════════════════
-         SECTION 2 — Fleet Overview Mini Stats Bar
-    ════════════════════════════════════════════════ -->
+    <!-- SECTION 2 — Fleet Overview Mini Stats Bar -->
     <div class="w-full px-4 mb-6">
       <div
         class="relative flex flex-col min-w-0 break-words bg-white w-full mb-0 shadow-lg rounded"
@@ -29,10 +27,10 @@
               Avg SoC Fleet
             </p>
             <h4 class="text-2xl font-bold text-blueGray-700 font-mono">
-              {{ fleetAvgSoC.toFixed(0) }}%
+              {{ fleetAvgSoC }}%
             </h4>
             <p class="text-xs text-blueGray-400 mt-1">
-              {{ totalActiveCells }} sel aktif
+              {{ activeCellCount }} sel aktif
             </p>
           </div>
 
@@ -44,15 +42,25 @@
             </p>
             <h4
               class="text-2xl font-bold font-mono"
-              :class="fleetMaxTemp > 45 ? 'text-red-500' : 'text-blueGray-700'"
+              :class="
+                parseFloat(fleetMaxTemp) > 45
+                  ? 'text-red-500'
+                  : 'text-blueGray-700'
+              "
             >
-              {{ fleetMaxTemp.toFixed(1) }} °C
+              {{ fleetMaxTemp }} °C
             </h4>
             <p
               class="text-xs mt-1"
-              :class="fleetMaxTemp > 45 ? 'text-red-400' : 'text-blueGray-400'"
+              :class="
+                parseFloat(fleetMaxTemp) > 45
+                  ? 'text-red-400'
+                  : 'text-blueGray-400'
+              "
             >
-              {{ fleetMaxTemp > 45 ? "⚠ Perlu perhatian" : "Normal" }}
+              {{
+                parseFloat(fleetMaxTemp) > 45 ? "⚠ Perlu perhatian" : "Normal"
+              }}
             </p>
           </div>
 
@@ -65,29 +73,29 @@
             <h4
               class="text-2xl font-bold font-mono"
               :class="
-                fleetDeltaV > 0.1
+                parseFloat(fleetDeltaV) > 0.1
                   ? 'text-red-500'
-                  : fleetDeltaV > 0.05
+                  : parseFloat(fleetDeltaV) > 0.05
                   ? 'text-amber-500'
                   : 'text-blueGray-700'
               "
             >
-              {{ fleetDeltaV.toFixed(3) }} V
+              {{ fleetDeltaV }} V
             </h4>
             <p
               class="text-xs mt-1"
               :class="
-                fleetDeltaV > 0.1
+                parseFloat(fleetDeltaV) > 0.1
                   ? 'text-red-400'
-                  : fleetDeltaV > 0.05
+                  : parseFloat(fleetDeltaV) > 0.05
                   ? 'text-amber-500'
                   : 'text-blueGray-400'
               "
             >
               {{
-                fleetDeltaV > 0.1
+                parseFloat(fleetDeltaV) > 0.1
                   ? "⚠ Imbalance"
-                  : fleetDeltaV > 0.05
+                  : parseFloat(fleetDeltaV) > 0.05
                   ? "Watch"
                   : "Balanced"
               }}
@@ -97,9 +105,7 @@
       </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════
-         SECTION 3 — Pack Cards Grid
-    ════════════════════════════════════════════════ -->
+    <!-- SECTION 3 — Pack Cards Grid -->
     <div class="w-full px-4 mb-6">
       <div v-if="bmsStore.packs.length" class="flex flex-wrap -mx-4">
         <div
@@ -167,12 +173,13 @@ export default {
       await bmsStore.fetchPacks();
     });
 
+    // ── FIX: cellReadings sekarang plain object, bukan Map ────
+    // Gunakan Object.keys/values/entries bukan .keys()/.values()
+
     function getCellsForPack(packId) {
-      const entries = [];
-      for (const [key, reading] of bmsStore.cellReadings.entries()) {
-        if (key.startsWith(packId + ":")) entries.push(reading);
-      }
-      return entries;
+      return Object.entries(bmsStore.cellReadings)
+        .filter(([key]) => key.startsWith(packId + ":"))
+        .map(([, reading]) => reading);
     }
 
     function getAlertsForPack(packId) {
@@ -184,47 +191,49 @@ export default {
       router.push({ path: "/admin/pack-detail", query: { pack: packId } });
     }
 
-    const allCells = computed(() => {
-      const arr = [];
-      for (const v of bmsStore.cellReadings.values()) arr.push(v);
-      return arr;
-    });
+    // Semua readings sebagai array (reactive karena object ref)
+    const allReadings = computed(() => Object.values(bmsStore.cellReadings));
 
-    const totalActiveCells = computed(() => allCells.value.length);
+    const activeCellCount = computed(() => allReadings.value.length);
 
     const activePacks = computed(
       () =>
-        bmsStore.packs.filter((p) => {
-          for (const key of bmsStore.cellReadings.keys()) {
-            if (key.startsWith(p.pack_id + ":")) return true;
-          }
-          return false;
-        }).length,
+        bmsStore.packs.filter((p) =>
+          Object.keys(bmsStore.cellReadings).some((k) =>
+            k.startsWith(p.pack_id + ":"),
+          ),
+        ).length,
     );
 
     const fleetAvgSoC = computed(() => {
-      const socs = allCells.value.map((c) => c.soc ?? c.metrics?.soc ?? 0);
-      return socs.length ? socs.reduce((a, b) => a + b, 0) / socs.length : 0;
+      const cells = allReadings.value;
+      if (!cells.length) return "0";
+      const socs = cells.map((c) => c.soc ?? c.metrics?.soc ?? 0);
+      return (socs.reduce((a, b) => a + b, 0) / socs.length).toFixed(0);
     });
 
     const fleetMaxTemp = computed(() => {
-      const temps = allCells.value
+      const cells = allReadings.value;
+      if (!cells.length) return "0.0";
+      const temps = cells
         .map((c) => c.temperature ?? c.metrics?.temperature ?? 0)
         .filter(Boolean);
-      return temps.length ? Math.max(...temps) : 0;
+      return temps.length ? Math.max(...temps).toFixed(1) : "0.0";
     });
 
     const fleetDeltaV = computed(() => {
-      const voltages = allCells.value
+      const cells = allReadings.value;
+      if (!cells.length) return "0.000";
+      const voltages = cells
         .map((c) => c.voltage ?? c.metrics?.voltage ?? 0)
         .filter(Boolean);
-      if (!voltages.length) return 0;
-      return Math.max(...voltages) - Math.min(...voltages);
+      if (!voltages.length) return "0.000";
+      return (Math.max(...voltages) - Math.min(...voltages)).toFixed(3);
     });
 
     return {
       bmsStore,
-      totalActiveCells,
+      activeCellCount,
       activePacks,
       fleetAvgSoC,
       fleetMaxTemp,
