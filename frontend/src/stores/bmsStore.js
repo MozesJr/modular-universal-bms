@@ -4,6 +4,7 @@ import api from "@/services/api";
 
 export const useBmsStore = defineStore("bms", () => {
   const packs = ref([]);
+  const bmsModels = ref([]); // ← BARU: list BmsModel
   const selectedPackId = ref(null);
   const cellReadings = ref(new Map());
   const cellHistory = ref(new Map());
@@ -11,7 +12,7 @@ export const useBmsStore = defineStore("bms", () => {
   const alerts = ref([]);
   const alertLogs = ref([]);
 
-  // ── Computed ────────────────────────────────────────────────
+  // ── Computed ─────────────────────────────────────────────
   const selectedPack = computed(() =>
     packs.value.find((p) => p.pack_id === selectedPackId.value),
   );
@@ -27,8 +28,20 @@ export const useBmsStore = defineStore("bms", () => {
 
   const hasActiveAlert = computed(() => alerts.value.length > 0);
 
-  // ── Pack CRUD ────────────────────────────────────────────────
+  // ── BmsModel ──────────────────────────────────────────────
+  async function fetchBmsModels() {
+    const { data } = await api.get("/bms-models");
+    bmsModels.value = data;
+    return data;
+  }
 
+  async function createBmsModel(modelName) {
+    const { data } = await api.post("/bms-models", { model_name: modelName });
+    bmsModels.value.push(data);
+    return data;
+  }
+
+  // ── Pack CRUD ─────────────────────────────────────────────
   async function fetchPacks() {
     const { data } = await api.get("/packs");
     packs.value = data;
@@ -50,29 +63,36 @@ export const useBmsStore = defineStore("bms", () => {
     return data;
   }
 
-  // ── TAMBAHAN: Delete pack ────────────────────────────────────
   async function deletePack(packId) {
     await api.delete(`/packs/${packId}`);
     packs.value = packs.value.filter((p) => p.pack_id !== packId);
-
-    // Bersihkan cell readings & history terkait pack ini
     for (const key of [...cellReadings.value.keys()]) {
       if (key.startsWith(packId + ":")) cellReadings.value.delete(key);
     }
     for (const key of [...cellHistory.value.keys()]) {
       if (key.startsWith(packId + ":")) cellHistory.value.delete(key);
     }
-
-    // Reset selectedPackId jika pack yang dihapus sedang dipilih
     if (selectedPackId.value === packId) {
       selectedPackId.value = packs.value.length ? packs.value[0].pack_id : null;
     }
   }
 
-  // ── Real-time readings ───────────────────────────────────────
+  // ── Real-time readings ────────────────────────────────────
   function applyReading(reading) {
     const key = `${reading.pack_id}:${reading.cell_id}`;
-    cellReadings.value.set(key, reading);
+
+    // Flatten untuk kompabilitas dengan CellCard (akses langsung .voltage dll)
+    const flat = {
+      ...reading,
+      voltage: reading.metrics?.voltage ?? 0,
+      current: reading.metrics?.current ?? 0,
+      temperature: reading.metrics?.temperature ?? 0,
+      soc: reading.metrics?.soc ?? 0,
+      soh: reading.metrics?.soh ?? 100,
+      state: reading.state ?? "normal",
+    };
+
+    cellReadings.value.set(key, flat);
 
     if (!cellHistory.value.has(key)) cellHistory.value.set(key, []);
     const history = cellHistory.value.get(key);
@@ -80,7 +100,7 @@ export const useBmsStore = defineStore("bms", () => {
     if (history.length > HISTORY_MAX) history.shift();
 
     if (reading.alerts && reading.alerts.length) {
-      alerts.value.unshift(reading);
+      alerts.value.unshift({ ...flat, timestamp: reading.timestamp });
       if (alerts.value.length > 50) alerts.value.pop();
     }
   }
@@ -89,7 +109,7 @@ export const useBmsStore = defineStore("bms", () => {
     return cellHistory.value.get(`${packId}:${cellId}`) || [];
   }
 
-  // ── Alerts ───────────────────────────────────────────────────
+  // ── Alerts ────────────────────────────────────────────────
   async function fetchAlertLogs() {
     const { data } = await api.get("/alerts");
     alertLogs.value = data;
@@ -103,7 +123,7 @@ export const useBmsStore = defineStore("bms", () => {
     if (idx !== -1) alertLogs.value.splice(idx, 1, data);
   }
 
-  // ── Historical cell data ─────────────────────────────────────
+  // ── Historical ────────────────────────────────────────────
   async function fetchCellHistory(packId, cellId, hours = 1) {
     const to = new Date();
     const from = new Date(to - hours * 3600 * 1000);
@@ -115,27 +135,25 @@ export const useBmsStore = defineStore("bms", () => {
   }
 
   return {
-    // State
     packs,
+    bmsModels,
     selectedPackId,
     selectedPack,
     cellReadings,
     cellHistory,
     alerts,
     alertLogs,
-    // Computed
     cellsForPack,
     hasActiveAlert,
-    // Pack CRUD
     fetchPacks,
     createPack,
     updatePack,
     deletePack,
-    // Readings
+    fetchBmsModels,
+    createBmsModel,
     applyReading,
     getCellHistory,
     fetchCellHistory,
-    // Alerts
     fetchAlertLogs,
     acknowledgeAlert,
   };

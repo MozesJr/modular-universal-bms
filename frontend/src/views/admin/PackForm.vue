@@ -30,34 +30,30 @@
           </div>
         </div>
 
-        <!-- Form body -->
+        <!-- Form -->
         <form
           @submit.prevent="handleSubmit"
           class="flex-auto px-4 lg:px-10 py-8"
         >
-          <!-- Error banner -->
+          <!-- Banner error/success -->
           <div
             v-if="errorMsg"
             class="mb-6 bg-red-500 text-white text-sm font-bold px-4 py-3 rounded flex items-center gap-2"
           >
-            <i class="fas fa-exclamation-triangle"></i>
-            {{ errorMsg }}
+            <i class="fas fa-exclamation-triangle"></i> {{ errorMsg }}
           </div>
-
-          <!-- Success banner -->
           <div
             v-if="successMsg"
             class="mb-6 bg-emerald-500 text-white text-sm font-bold px-4 py-3 rounded flex items-center gap-2"
           >
-            <i class="fas fa-check-circle"></i>
-            {{ successMsg }}
+            <i class="fas fa-check-circle"></i> {{ successMsg }}
           </div>
 
-          <!-- ── Section 1: Identity ───────────────────────── -->
+          <!-- ── Section 1: Identitas Pack ──────────────────── -->
           <div class="flex flex-wrap mb-6">
-            <div class="w-full">
+            <div class="w-full mb-4">
               <h6
-                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2"
+                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
               >
                 <span
                   class="inline-block h-2 w-2 rounded-full bg-indigo-500"
@@ -66,7 +62,7 @@
               </h6>
             </div>
 
-            <div class="w-full lg:w-6/12 px-2 mb-4">
+            <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
               >
@@ -77,15 +73,11 @@
                 :disabled="isEditMode"
                 required
                 placeholder="e.g. PACK_001"
-                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full ease-linear transition-all duration-150 disabled:bg-blueGray-100 disabled:text-blueGray-400 font-mono"
+                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full disabled:bg-blueGray-100 disabled:text-blueGray-400 font-mono"
               />
-              <p v-if="isEditMode" class="text-xs text-blueGray-400 mt-1">
-                <i class="fas fa-lock text-xs mr-1"></i>Pack ID tidak bisa
-                diubah.
-              </p>
             </div>
 
-            <div class="w-full lg:w-6/12 px-2 mb-4">
+            <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
               >
@@ -94,36 +86,126 @@
               <input
                 v-model="form.name"
                 placeholder="e.g. Solar Storage Bank"
-                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full ease-linear transition-all duration-150"
+                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
+              />
+            </div>
+
+            <div class="w-full lg:w-4/12 px-2 mb-4">
+              <label
+                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+              >
+                Serial Number BMS
+              </label>
+              <input
+                v-model="form.bms_sernum"
+                placeholder="e.g. BMS-SN-20260001"
+                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
               />
             </div>
           </div>
 
           <hr class="border-blueGray-200 mb-6" />
 
-          <!-- ── Section 2: Chemistry & Cell Count ────────── -->
+          <!-- ── Section 2: BMS Model & Hardware Info ───────── -->
           <div class="flex flex-wrap mb-6">
-            <div class="w-full">
+            <div class="w-full mb-4">
               <h6
-                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2"
+                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
+              >
+                <span
+                  class="inline-block h-2 w-2 rounded-full bg-purple-500"
+                ></span>
+                BMS Hardware Info
+              </h6>
+            </div>
+
+            <div class="w-full lg:w-4/12 px-2 mb-4">
+              <label
+                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+              >
+                Model BMS
+              </label>
+              <select
+                v-model="form.bms_model_name"
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
+              >
+                <option value="">— Pilih model (opsional) —</option>
+                <option
+                  v-for="m in bmsStore.bmsModels"
+                  :key="m._id"
+                  :value="m.model_name"
+                >
+                  {{ m.model_name }}
+                </option>
+              </select>
+              <p class="text-xs text-blueGray-400 mt-1">
+                Kelola model di
+                <router-link
+                  to="/admin/config"
+                  class="text-indigo-500 hover:underline"
+                  >Pack Config</router-link
+                >
+              </p>
+            </div>
+
+            <div class="w-full lg:w-4/12 px-2 mb-4">
+              <label
+                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+              >
+                Cycle Count
+              </label>
+              <input
+                v-model.number="form.cycle_count"
+                type="number"
+                min="0"
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
+              />
+            </div>
+
+            <div class="w-full lg:w-4/12 px-2 mb-4">
+              <label
+                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+              >
+                Status / State
+              </label>
+              <select
+                v-model="form.state"
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
+              >
+                <option value="standby">Standby</option>
+                <option value="normal">Normal</option>
+                <option value="charging">Charging</option>
+                <option value="discharging">Discharging</option>
+                <option value="fault">Fault</option>
+              </select>
+            </div>
+          </div>
+
+          <hr class="border-blueGray-200 mb-6" />
+
+          <!-- ── Section 3: Chemistry & Cell Count ──────────── -->
+          <div class="flex flex-wrap mb-6">
+            <div class="w-full mb-4">
+              <h6
+                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
               >
                 <span
                   class="inline-block h-2 w-2 rounded-full bg-emerald-500"
                 ></span>
-                Battery Chemistry &amp; Series Count
+                Battery Chemistry &amp; Configuration
               </h6>
             </div>
 
-            <div class="w-full lg:w-6/12 px-2 mb-4">
+            <div class="w-full lg:w-3/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
               >
-                Cell Chemistry Preset *
+                Chemistry Preset *
               </label>
               <select
                 v-model="form.chemistry"
                 @change="onChemistryChange"
-                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full ease-linear transition-all duration-150"
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
               >
                 <option
                   v-for="key in Object.keys(PRESETS)"
@@ -135,18 +217,17 @@
               </select>
               <p
                 v-if="form.chemistry !== 'Custom'"
-                class="text-xs text-emerald-600 font-semibold mt-1.5 flex items-center gap-1"
+                class="text-xs text-emerald-600 font-semibold mt-1 flex items-center gap-1"
               >
-                <i class="fas fa-check-circle"></i> Thresholds auto-filled from
-                preset
+                <i class="fas fa-check-circle"></i> Threshold auto-filled
               </p>
             </div>
 
-            <div class="w-full lg:w-6/12 px-2 mb-4">
+            <div class="w-full lg:w-3/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
               >
-                Total Cells in Series (S) *
+                Total Cells (S-Series) *
               </label>
               <input
                 v-model.number="form.cell_count"
@@ -154,18 +235,48 @@
                 min="1"
                 max="200"
                 required
-                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full ease-linear transition-all duration-150 font-mono"
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
+              />
+            </div>
+
+            <div class="w-full lg:w-3/12 px-2 mb-4">
+              <label
+                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+              >
+                Kapasitas (Ah) *
+              </label>
+              <input
+                v-model.number="form.capacity_ah"
+                type="number"
+                min="1"
+                step="0.1"
+                required
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
+              />
+            </div>
+
+            <div class="w-full lg:w-3/12 px-2 mb-4">
+              <label
+                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+              >
+                Jumlah Pack Paralel
+              </label>
+              <input
+                v-model.number="form.pack_num"
+                type="number"
+                min="1"
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
               />
             </div>
           </div>
 
           <hr class="border-blueGray-200 mb-6" />
 
-          <!-- ── Section 3: Voltage Limits ────────────────── -->
+          <!-- ── Section 4: Voltage Limits ──────────────────── -->
           <div class="flex flex-wrap mb-6">
-            <div class="w-full">
+            <div class="w-full mb-4">
               <h6
-                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2"
+                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
               >
                 <span
                   class="inline-block h-2 w-2 rounded-full bg-amber-500"
@@ -177,9 +288,8 @@
             <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+                >Under-Voltage Min (V) *</label
               >
-                Under-Voltage Min (V) *
-              </label>
               <input
                 v-model.number="form.min_voltage"
                 type="number"
@@ -192,9 +302,8 @@
             <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+                >Nominal Voltage (V)</label
               >
-                Nominal Voltage (V)
-              </label>
               <input
                 v-model.number="form.nominal_voltage"
                 type="number"
@@ -206,9 +315,8 @@
             <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+                >Over-Voltage Max (V) *</label
               >
-                Over-Voltage Max (V) *
-              </label>
               <input
                 v-model.number="form.max_voltage"
                 type="number"
@@ -221,11 +329,11 @@
 
           <hr class="border-blueGray-200 mb-6" />
 
-          <!-- ── Section 4: Protection Thresholds ─────────── -->
+          <!-- ── Section 5: Protection Thresholds ───────────── -->
           <div class="flex flex-wrap mb-8">
-            <div class="w-full">
+            <div class="w-full mb-4">
               <h6
-                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider mb-4 flex items-center gap-2"
+                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
               >
                 <span
                   class="inline-block h-2 w-2 rounded-full bg-red-500"
@@ -271,14 +379,14 @@
           >
             <router-link
               to="/admin/config"
-              class="text-blueGray-500 bg-white hover:bg-blueGray-100 font-bold uppercase px-4 py-2 text-xs rounded border border-blueGray-200 transition-colors outline-none focus:outline-none"
+              class="text-blueGray-500 bg-white hover:bg-blueGray-100 font-bold uppercase px-5 py-2.5 text-xs rounded border border-blueGray-200 transition-colors outline-none focus:outline-none"
             >
               Cancel
             </router-link>
             <button
               type="submit"
               :disabled="saving"
-              class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold uppercase text-xs px-4 py-2 rounded shadow hover:shadow-md transition-all outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold uppercase text-xs px-6 py-2.5 rounded shadow hover:shadow-md transition-all outline-none focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               <i v-if="saving" class="fas fa-spinner fa-spin"></i>
               <i v-else class="fas fa-save"></i>
@@ -306,10 +414,8 @@ const route = useRoute();
 const router = useRouter();
 const bmsStore = useBmsStore();
 
-// ── Edit mode: deteksi dari query ?edit=PACK_001 ─────────────
 const isEditMode = computed(() => !!route.query.edit);
 
-// ── Chemistry presets ────────────────────────────────────────
 const PRESETS = {
   LiFePO4: {
     nominal_voltage: 3.2,
@@ -325,6 +431,20 @@ const PRESETS = {
     max_temp_celsius: 60,
     max_current_amps: 20,
   },
+  NMC: {
+    nominal_voltage: 3.7,
+    min_voltage: 3.0,
+    max_voltage: 4.2,
+    max_temp_celsius: 55,
+    max_current_amps: 25,
+  },
+  LCO: {
+    nominal_voltage: 3.7,
+    min_voltage: 3.0,
+    max_voltage: 4.2,
+    max_temp_celsius: 50,
+    max_current_amps: 15,
+  },
   Custom: {
     nominal_voltage: 0,
     min_voltage: 0,
@@ -337,8 +457,15 @@ const PRESETS = {
 const BLANK = () => ({
   pack_id: "",
   name: "",
+  bms_sernum: "",
+  bms_model_name: "",
   chemistry: "LiFePO4",
   cell_count: 4,
+  capacity_ah: 100,
+  pack_num: 1,
+  cell_series: 1,
+  cycle_count: 0,
+  state: "standby",
   ...PRESETS["LiFePO4"],
 });
 
@@ -347,9 +474,9 @@ const saving = ref(false);
 const errorMsg = ref("");
 const successMsg = ref("");
 
-// ── Load existing pack data jika edit mode ───────────────────
 onMounted(async () => {
   await bmsStore.fetchPacks();
+  await bmsStore.fetchBmsModels();
 
   if (isEditMode.value) {
     const packId = route.query.edit;
@@ -358,16 +485,20 @@ onMounted(async () => {
       Object.assign(form, {
         pack_id: existing.pack_id,
         name: existing.name ?? "",
+        bms_sernum: existing.bms_sernum ?? "",
+        bms_model_name: existing.bms_model_name ?? "",
         chemistry: existing.chemistry ?? "LiFePO4",
         cell_count: existing.cell_count ?? 4,
-        nominal_voltage:
-          existing.nominal_voltage ?? PRESETS["LiFePO4"].nominal_voltage,
-        min_voltage: existing.min_voltage ?? PRESETS["LiFePO4"].min_voltage,
-        max_voltage: existing.max_voltage ?? PRESETS["LiFePO4"].max_voltage,
-        max_temp_celsius:
-          existing.max_temp_celsius ?? PRESETS["LiFePO4"].max_temp_celsius,
-        max_current_amps:
-          existing.max_current_amps ?? PRESETS["LiFePO4"].max_current_amps,
+        capacity_ah: existing.capacity_ah ?? 100,
+        pack_num: existing.pack_num ?? 1,
+        cell_series: existing.cell_series ?? 1,
+        cycle_count: existing.cycle_count ?? 0,
+        state: existing.state ?? "standby",
+        nominal_voltage: existing.nominal_voltage ?? 3.2,
+        min_voltage: existing.min_voltage ?? 2.5,
+        max_voltage: existing.max_voltage ?? 3.65,
+        max_temp_celsius: existing.max_temp_celsius ?? 55,
+        max_current_amps: existing.max_current_amps ?? 20,
       });
     } else {
       errorMsg.value = `Pack "${packId}" tidak ditemukan.`;
@@ -377,13 +508,7 @@ onMounted(async () => {
 
 function onChemistryChange() {
   const preset = PRESETS[form.chemistry];
-  if (preset) {
-    form.nominal_voltage = preset.nominal_voltage;
-    form.min_voltage = preset.min_voltage;
-    form.max_voltage = preset.max_voltage;
-    form.max_temp_celsius = preset.max_temp_celsius;
-    form.max_current_amps = preset.max_current_amps;
-  }
+  if (preset) Object.assign(form, preset);
 }
 
 async function handleSubmit() {
@@ -391,14 +516,18 @@ async function handleSubmit() {
   errorMsg.value = "";
   successMsg.value = "";
   try {
+    const payload = { ...form };
+    // Hapus field kosong agar tidak override existing
+    if (!payload.bms_sernum) delete payload.bms_sernum;
+    if (!payload.bms_model_name) delete payload.bms_model_name;
+
     if (isEditMode.value) {
-      await bmsStore.updatePack(form.pack_id, { ...form });
+      await bmsStore.updatePack(form.pack_id, payload);
       successMsg.value = "Pack berhasil diupdate!";
     } else {
-      await bmsStore.createPack({ ...form });
+      await bmsStore.createPack(payload);
       successMsg.value = "Pack berhasil dibuat!";
     }
-    // Redirect ke list setelah 1 detik
     setTimeout(() => router.push("/admin/config"), 1000);
   } catch (err) {
     errorMsg.value =

@@ -1,29 +1,27 @@
 /**
- * app.js — Express application setup
+ * app.js — Express application setup (updated skema baru)
  */
-
 "use strict";
-
 const express = require("express");
 const cors = require("cors");
 const cellRoutes = require("./routes/cells");
 const alertRoutes = require("./routes/alerts");
 const packRoutes = require("./routes/packs");
+const bmsModelRoutes = require("./routes/bmsModels"); // ← BARU
 const errorHandler = require("./middleware/errorHandler");
 
 const app = express();
 
-// ─── Middleware ────────────────────────────────────────────
-app.use(cors({ origin: "*" })); // Restrict in production
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ─── Routes ───────────────────────────────────────────────
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+
 app.use("/api/cells", cellRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/packs", packRoutes);
+app.use("/api/bms-models", bmsModelRoutes); // ← BARU
 
-// ─── Error Handler ────────────────────────────────────────
 app.use(errorHandler);
 
 module.exports = app;

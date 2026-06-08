@@ -1,14 +1,14 @@
 /**
- * routes/packs.js — CRUD for battery pack configurations
+ * routes/packs.js — CRUD untuk BatteryPack (bms + cell_pack + cell)
  */
 "use strict";
-
 const { Router } = require("express");
 const BatteryPack = require("../models/BatteryPack");
+const BmsModel = require("../models/BmsModel");
 const { invalidatePackCache } = require("../services/mqttService");
 const router = Router();
 
-// GET /api/packs/
+// GET /api/packs
 router.get("/", async (_req, res, next) => {
   try {
     const packs = await BatteryPack.find().lean();
@@ -18,7 +18,7 @@ router.get("/", async (_req, res, next) => {
   }
 });
 
-// GET /api/packs/presets — must be BEFORE /:packId
+// GET /api/packs/presets — chemistry presets (harus sebelum /:packId)
 router.get("/presets", (_req, res) => {
   res.json([
     {
@@ -39,6 +39,24 @@ router.get("/presets", (_req, res) => {
       max_temp_celsius: 60,
       max_current_amps: 20,
     },
+    {
+      key: "NMC",
+      label: "NMC (Nickel Manganese Cobalt)",
+      nominal_voltage: 3.7,
+      min_voltage: 3.0,
+      max_voltage: 4.2,
+      max_temp_celsius: 55,
+      max_current_amps: 25,
+    },
+    {
+      key: "LCO",
+      label: "LCO (Lithium Cobalt Oxide)",
+      nominal_voltage: 3.7,
+      min_voltage: 3.0,
+      max_voltage: 4.2,
+      max_temp_celsius: 50,
+      max_current_amps: 15,
+    },
   ]);
 });
 
@@ -55,10 +73,25 @@ router.get("/:packId", async (req, res, next) => {
   }
 });
 
-// POST /api/packs/
+// POST /api/packs
 router.post("/", async (req, res, next) => {
   try {
-    const pack = await BatteryPack.create(req.body);
+    const body = req.body;
+
+    // Resolve bms_model_id dari nama jika dikirim sebagai string
+    if (body.bms_model_name && !body.bms_model_id) {
+      const model = await BmsModel.findOne({ model_name: body.bms_model_name });
+      if (model) body.bms_model_id = model._id;
+    }
+
+    // Auto-generate cells array jika tidak dikirim
+    if (!body.cells || body.cells.length === 0) {
+      body.cells = Array.from({ length: body.cell_count || 1 }, (_, i) => ({
+        cell_no: i + 1,
+      }));
+    }
+
+    const pack = await BatteryPack.create(body);
     res.status(201).json(pack);
   } catch (err) {
     next(err);
@@ -68,9 +101,29 @@ router.post("/", async (req, res, next) => {
 // PUT /api/packs/:packId
 router.put("/:packId", async (req, res, next) => {
   try {
+    const body = req.body;
+
+    // Resolve bms_model_id dari nama jika berubah
+    if (body.bms_model_name && !body.bms_model_id) {
+      const model = await BmsModel.findOne({ model_name: body.bms_model_name });
+      if (model) body.bms_model_id = model._id;
+    }
+
+    // Regenerate cells jika cell_count berubah
+    if (body.cell_count) {
+      const existing = await BatteryPack.findOne({
+        pack_id: req.params.packId,
+      });
+      if (existing && existing.cell_count !== body.cell_count) {
+        body.cells = Array.from({ length: body.cell_count }, (_, i) => ({
+          cell_no: i + 1,
+        }));
+      }
+    }
+
     const pack = await BatteryPack.findOneAndUpdate(
       { pack_id: req.params.packId },
-      req.body,
+      body,
       { new: true, runValidators: true },
     );
     if (!pack) return res.status(404).json({ error: "Pack not found" });
@@ -85,14 +138,10 @@ router.put("/:packId", async (req, res, next) => {
 router.delete("/:packId", async (req, res, next) => {
   try {
     const { packId } = req.params;
-
     const pack = await BatteryPack.findOneAndDelete({ pack_id: packId });
     if (!pack)
       return res.status(404).json({ error: `Pack "${packId}" not found` });
-
-    // Bust threshold cache agar MQTT tidak pakai config lama
     invalidatePackCache(packId);
-
     res.json({
       success: true,
       message: `Pack "${packId}" deleted successfully`,

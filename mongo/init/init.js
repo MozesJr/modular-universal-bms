@@ -1,55 +1,88 @@
-// =============================================
-// MongoDB Initialization Script
-// Runs once when the container is first created
-// =============================================
+/**
+ * mongo-init.js
+ * Fresh start script — drop semua collection lama, buat collection baru
+ * dengan schema indexes yang benar.
+ *
+ * Cara pakai:
+ *   docker compose exec mongodb mongosh bms_db --file /scripts/mongo-init.js
+ *
+ * ATAU jika tidak pakai Docker:
+ *   mongosh "mongodb://bms_admin:supersecretpassword@localhost:27017/bms_db?authSource=admin" --file mongo-init.js
+ */
 
-db = db.getSiblingDB("bms_db");
+// ── Drop semua collection lama ───────────────────────────────
+print("🗑️  Dropping old collections...");
+db.battery_packs.drop();
+db.cell_readings.drop();
+db.alert_logs.drop();
+db.bms_models.drop(); // collection baru, drop kalau ada sisa
+print("✅ Old collections dropped.");
 
-// Create a dedicated app user (least privilege)
-db.createUser({
-  user: "bms_app",
-  pwd: "bms_app_password",
-  roles: [{ role: "readWrite", db: "bms_db" }],
-});
+// ══════════════════════════════════════════════════════════════
+// 1. bms_models (baru — mapping tabel bms_model)
+// ══════════════════════════════════════════════════════════════
+db.createCollection("bms_models");
+db.bms_models.createIndex({ model_name: 1 }, { unique: true });
+print("✅ bms_models collection created.");
 
-// ─── Collection: cell_readings ─────────────
-// Time-series data from each battery cell
+// Seed beberapa model default
+db.bms_models.insertMany([
+  { model_name: "ESP32-BMS-V1" },
+  { model_name: "ESP32-BMS-V2" },
+  { model_name: "Custom-PCB-V1" },
+]);
+print("✅ bms_models seeded (3 default models).");
+
+// ══════════════════════════════════════════════════════════════
+// 2. battery_packs (update — mapping bms + cell_pack + cell)
+// ══════════════════════════════════════════════════════════════
+db.createCollection("battery_packs");
+db.battery_packs.createIndex({ pack_id: 1 }, { unique: true });
+db.battery_packs.createIndex({ state: 1 });
+print("✅ battery_packs collection created.");
+
+// ══════════════════════════════════════════════════════════════
+// 3. cell_readings (update — mapping bms_log + cell_log)
+// ══════════════════════════════════════════════════════════════
 db.createCollection("cell_readings", {
-  timeseries: {
-    timeField: "timestamp",
-    metaField: "meta",       // { pack_id, cell_id }
-    granularity: "seconds",
-  },
-  expireAfterSeconds: 60 * 60 * 24 * 90, // Auto-delete after 90 days
+  // Time-series hint: TTL index hapus data > 30 hari otomatis
+  // Sesuaikan expireAfterSeconds sesuai kebutuhan penyimpanan
 });
 
-// Compound index for fast per-cell historical queries
+// Compound index untuk query histori per sel (paling sering dipakai)
 db.cell_readings.createIndex(
-  { "meta.pack_id": 1, "meta.cell_id": 1, timestamp: -1 },
-  { background: true }
+  { pack_id: 1, cell_id: 1, timestamp: -1 },
+  { name: "pack_cell_time_desc" },
 );
 
-// ─── Collection: alerts ────────────────────
-db.createCollection("alerts");
-db.alerts.createIndex({ timestamp: -1 });
-db.alerts.createIndex({ pack_id: 1, cell_id: 1, resolved: 1 });
+// Index untuk query alert history
+db.cell_readings.createIndex(
+  { pack_id: 1, "alerts.0": 1, timestamp: -1 },
+  { sparse: true, name: "pack_alerts_time" },
+);
 
-// ─── Collection: battery_packs ─────────────
-// Configuration metadata for each battery pack
-db.createCollection("battery_packs");
+// TTL index: otomatis hapus readings > 30 hari (opsional, comment jika tidak mau)
+db.cell_readings.createIndex(
+  { timestamp: 1 },
+  { expireAfterSeconds: 60 * 60 * 24 * 30, name: "ttl_30days" },
+);
 
-// Seed a default pack for development
-db.battery_packs.insertOne({
-  pack_id: "PACK_001",
-  name: "LiFePO4 Dev Pack",
-  cell_count: 4,
-  chemistry: "LiFePO4",
-  nominal_voltage: 3.2,
-  max_voltage: 3.65,
-  min_voltage: 2.5,
-  max_temp_celsius: 60,
-  max_current_amps: 20,
-  created_at: new Date(),
+print("✅ cell_readings collection created with indexes.");
+
+// ══════════════════════════════════════════════════════════════
+// 4. alert_logs (tidak berubah)
+// ══════════════════════════════════════════════════════════════
+db.createCollection("alert_logs");
+db.alert_logs.createIndex({ pack_id: 1, timestamp: -1 });
+db.alert_logs.createIndex({ resolved: 1, timestamp: -1 });
+print("✅ alert_logs collection created.");
+
+// ── Summary ──────────────────────────────────────────────────
+print("\n📊 Collections in bms_db:");
+db.getCollectionNames().forEach((name) => {
+  const count = db[name].countDocuments();
+  print(`   - ${name}: ${count} documents`);
 });
 
-print("✅ BMS Database initialized successfully.");
+print("\n✅ BMS Database initialized successfully!");
+print("   Next: restart backend service to apply new models.");
