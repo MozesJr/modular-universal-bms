@@ -1,8 +1,6 @@
 <template>
   <div class="flex flex-wrap mt-4">
-    <!-- ══════════════════════════════════════════════
-         SECTION 1 — Pack Selector Bar
-    ════════════════════════════════════════════════ -->
+    <!-- ══ SECTION 1 — Pack Selector Bar ══ -->
     <div class="w-full px-4 mb-6">
       <div
         class="relative flex flex-col min-w-0 break-words bg-white w-full shadow-lg rounded"
@@ -10,7 +8,6 @@
         <div
           class="px-6 py-4 flex flex-wrap items-center justify-between gap-4"
         >
-          <!-- Kiri: judul + status -->
           <div class="flex items-center gap-4">
             <div
               class="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center shadow-sm shrink-0"
@@ -63,8 +60,6 @@
               </div>
             </div>
           </div>
-
-          <!-- Kanan: dropdown + export -->
           <div class="flex flex-wrap items-center gap-3">
             <div class="relative">
               <select
@@ -103,8 +98,6 @@
             </button>
           </div>
         </div>
-
-        <!-- Pack config info strip -->
         <div
           v-if="bmsStore.selectedPack"
           class="border-t border-blueGray-100 px-6 py-3 bg-blueGray-50 rounded-b flex flex-wrap gap-6"
@@ -123,9 +116,7 @@
       </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════
-         SECTION 2 — Quick Stats (CardStats pattern)
-    ════════════════════════════════════════════════ -->
+    <!-- ══ SECTION 2 — Quick Stats ══ -->
     <template v-if="bmsStore.cellsForPack.length">
       <div class="w-full lg:w-3/12 xl:w-3/12 px-4 mb-6">
         <card-stats
@@ -161,7 +152,7 @@
           :statDescription="quickStats.deltaLabel"
           statIconName="fas fa-balance-scale"
           :statIconColor="
-            quickStats.delta > 0.1 ? 'bg-red-400' : 'bg-emerald-400'
+            parseFloat(quickStats.delta) > 0.1 ? 'bg-red-400' : 'bg-emerald-400'
           "
         />
       </div>
@@ -179,9 +170,7 @@
       </div>
     </template>
 
-    <!-- ══════════════════════════════════════════════
-         SECTION 3 — Charts Row
-    ════════════════════════════════════════════════ -->
+    <!-- ══ SECTION 3 — Charts ══ -->
     <div class="w-full xl:w-8/12 px-4 mb-6">
       <div
         class="relative flex flex-col min-w-0 break-words bg-blueGray-700 w-full shadow-lg rounded"
@@ -243,9 +232,7 @@
       </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════
-         SECTION 4 — Alert Log
-    ════════════════════════════════════════════════ -->
+    <!-- ══ SECTION 4 — Alert Log ══ -->
     <div class="w-full px-4 mb-6">
       <div
         class="relative flex flex-col min-w-0 break-words bg-white w-full shadow-lg rounded"
@@ -350,12 +337,8 @@
       </div>
     </div>
 
-    <!-- ══════════════════════════════════════════════
-         SECTION 5 — Cell Balancing Matrix
-         Desain baru: card per cell lebih informatif
-    ════════════════════════════════════════════════ -->
+    <!-- ══ SECTION 5 — Cell Balancing Matrix ══ -->
     <div class="w-full px-4 mb-12">
-      <!-- Section header -->
       <div
         class="relative flex flex-col min-w-0 break-words bg-white w-full shadow-lg rounded mb-4"
       >
@@ -389,8 +372,6 @@
             </span>
           </div>
         </div>
-
-        <!-- Fleet balance summary strip -->
         <div
           v-if="bmsStore.cellsForPack.length"
           class="border-t border-blueGray-100 px-6 py-3 bg-blueGray-50 rounded-b grid grid-cols-4 gap-4"
@@ -469,18 +450,15 @@
         </div>
       </div>
 
-      <!-- Cell cards grid -->
       <div v-if="bmsStore.cellsForPack.length" class="flex flex-wrap -mx-3">
         <div
           v-for="cell in bmsStore.cellsForPack"
           :key="`${cell.pack_id}:${cell.cell_id}`"
           class="w-full sm:w-6/12 lg:w-3/12 px-3 mb-6"
         >
-          <!-- Cell Card — redesigned -->
           <div
             class="relative flex flex-col min-w-0 break-words bg-white w-full shadow-md rounded border border-blueGray-100 hover:shadow-lg transition-all duration-300"
           >
-            <!-- Accent bar -->
             <div
               class="h-1 w-full rounded-t"
               :class="
@@ -493,8 +471,6 @@
                   : 'bg-emerald-400'
               "
             ></div>
-
-            <!-- Card header -->
             <div
               class="px-4 py-3 border-b border-blueGray-100 flex items-center justify-between"
               :class="
@@ -528,8 +504,6 @@
                 {{ getCellStatus(cell) }}
               </span>
             </div>
-
-            <!-- Primary metrics: Voltage + Current -->
             <div
               class="grid grid-cols-2 divide-x divide-blueGray-100 border-b border-blueGray-100"
             >
@@ -542,8 +516,8 @@
                 <p
                   class="text-lg font-black font-mono text-blueGray-800 leading-tight"
                 >
-                  {{ fmtV(cell.voltage ?? cell.metrics?.voltage) }}
-                  <span class="text-xs font-normal text-blueGray-400">V</span>
+                  {{ fmtV(cell.voltage ?? cell.metrics?.voltage)
+                  }}<span class="text-xs font-normal text-blueGray-400">V</span>
                 </p>
               </div>
               <div class="px-4 py-3 text-center">
@@ -555,13 +529,11 @@
                 <p
                   class="text-lg font-black font-mono text-blueGray-800 leading-tight"
                 >
-                  {{ fmtA(cell.current ?? cell.metrics?.current) }}
-                  <span class="text-xs font-normal text-blueGray-400">A</span>
+                  {{ fmtA(cell.current ?? cell.metrics?.current)
+                  }}<span class="text-xs font-normal text-blueGray-400">A</span>
                 </p>
               </div>
             </div>
-
-            <!-- Secondary metrics: Temp + SoC -->
             <div
               class="grid grid-cols-2 divide-x divide-blueGray-100 border-b border-blueGray-100"
             >
@@ -579,8 +551,10 @@
                       : 'text-blueGray-700'
                   "
                 >
-                  {{ cell.temperature ?? cell.metrics?.temperature ?? 0 }}
-                  <span class="text-xs font-normal text-blueGray-400">°C</span>
+                  {{ cell.temperature ?? cell.metrics?.temperature ?? 0
+                  }}<span class="text-xs font-normal text-blueGray-400"
+                    >°C</span
+                  >
                 </p>
               </div>
               <div class="px-4 py-3 text-center">
@@ -605,7 +579,6 @@
                       >%</span
                     >
                   </p>
-                  <!-- SoC bar -->
                   <div
                     class="w-full h-1 bg-blueGray-100 rounded-full overflow-hidden"
                   >
@@ -628,8 +601,6 @@
                 </div>
               </div>
             </div>
-
-            <!-- SoH bar (bonus metric) -->
             <div
               class="px-4 py-2 border-b border-blueGray-100 flex items-center gap-2"
             >
@@ -654,8 +625,6 @@
                 {{ cell.soh ?? cell.metrics?.soh ?? 100 }}%
               </span>
             </div>
-
-            <!-- Sparkline footer -->
             <div class="px-3 py-2 bg-blueGray-50 rounded-b">
               <svg
                 class="w-full overflow-visible"
@@ -715,7 +684,6 @@
         </div>
       </div>
 
-      <!-- Empty state -->
       <div
         v-else
         class="relative flex flex-col min-w-0 break-words bg-white w-full shadow-lg rounded"
@@ -823,7 +791,6 @@ export default {
       } else selectedCells.value.splice(idx, 1);
     }
 
-    // ── Pack info strip ──────────────────────────────────────
     const packInfo = computed(() => {
       const p = bmsStore.selectedPack;
       if (!p) return [];
@@ -838,7 +805,6 @@ export default {
       ];
     });
 
-    // ── Quick stats ──────────────────────────────────────────
     const quickStats = computed(() => {
       const cells = bmsStore.cellsForPack;
       if (!cells.length)
@@ -895,7 +861,6 @@ export default {
       bmsStore.alerts.filter((a) => a.pack_id === bmsStore.selectedPackId),
     );
 
-    // ── Cell helpers ─────────────────────────────────────────
     function getCellStatus(cell) {
       const v = cell.voltage ?? cell.metrics?.voltage ?? 0;
       const t = cell.temperature ?? cell.metrics?.temperature ?? 0;
@@ -913,12 +878,8 @@ export default {
       return "fas fa-battery-quarter text-red-400";
     }
 
-    function fmtV(v) {
-      return v != null ? Number(v).toFixed(3) : "0.000";
-    }
-    function fmtA(a) {
-      return a != null ? Number(a).toFixed(2) : "0.00";
-    }
+    const fmtV = (v) => (v != null ? Number(v).toFixed(3) : "0.000");
+    const fmtA = (a) => (a != null ? Number(a).toFixed(2) : "0.00");
 
     function getSparkPoints(cell) {
       const raw = bmsStore.getCellHistory(cell.pack_id, cell.cell_id);
@@ -943,8 +904,8 @@ export default {
       const pts = getSparkPoints(cell);
       if (!pts) return null;
       const arr = pts.split(" ");
-      const first = arr[0].split(",");
-      const last = arr[arr.length - 1].split(",");
+      const first = arr[0].split(","),
+        last = arr[arr.length - 1].split(",");
       return `M${first[0]},${first[1]} L${pts.replace(/ /g, " L")} L${
         last[0]
       },22 L${first[0]},22 Z`;
@@ -954,16 +915,14 @@ export default {
       return bmsStore.getCellHistory(cell.pack_id, cell.cell_id).length;
     }
 
-    // ── Export ───────────────────────────────────────────────
     function exportData(format = "csv") {
       const cells = bmsStore.cellsForPack;
       if (!cells.length) return alert("Tidak ada data untuk di-export.");
       if (format === "json") {
-        const blob = new Blob([JSON.stringify(cells, null, 2)], {
-          type: "application/json",
-        });
         triggerDownload(
-          blob,
+          new Blob([JSON.stringify(cells, null, 2)], {
+            type: "application/json",
+          }),
           `bms_${bmsStore.selectedPackId}_${Date.now()}.json`,
         );
       } else {
@@ -999,26 +958,32 @@ export default {
       URL.revokeObjectURL(url);
     }
 
-    // ── Charts ───────────────────────────────────────────────
+    // ── FIX: Charts — ganti Map API ke plain object ───────────
     function buildLineDatasets() {
       const packId = bmsStore.selectedPackId;
       if (!packId) return { labels: [], datasets: [] };
-      const keys = [...bmsStore.cellHistory.keys()].filter(
+
+      // FIX: Object.keys bukan [...bmsStore.cellHistory.keys()]
+      const keys = Object.keys(bmsStore.cellHistory).filter(
         (k) =>
           k.startsWith(packId + ":") &&
           selectedCells.value.includes(Number(k.split(":")[1])),
       );
-      const maxLen = keys.reduce(
-        (m, k) => Math.max(m, (bmsStore.cellHistory.get(k) || []).length),
-        0,
-      );
+
+      const maxLen = keys.reduce((m, k) => {
+        // FIX: bmsStore.cellHistory[k] bukan bmsStore.cellHistory.get(k)
+        return Math.max(m, (bmsStore.cellHistory[k] || []).length);
+      }, 0);
+
       const labels = Array.from({ length: maxLen }, (_, i) => {
         const ago = (maxLen - 1 - i) * 2;
         return ago === 0 ? "now" : `-${ago}s`;
       });
+
       const datasets = keys.map((k, idx) => {
         const cellId = k.split(":")[1];
-        const history = bmsStore.cellHistory.get(k) || [];
+        // FIX: plain object access
+        const history = bmsStore.cellHistory[k] || [];
         const padded = Array(maxLen - history.length)
           .fill(null)
           .concat(history.map((r) => r.metrics?.voltage ?? r.voltage ?? null));
@@ -1032,6 +997,7 @@ export default {
           data: padded,
         };
       });
+
       return { labels, datasets };
     }
 
