@@ -189,6 +189,90 @@
           </li>
         </ul>
 
+        <hr class="my-4 md:min-w-full" />
+        <h6
+          class="md:min-w-full text-blueGray-500 text-xs uppercase font-bold block pt-1 pb-4 no-underline"
+        >
+          Settings
+        </h6>
+
+        <ul class="md:flex-col md:min-w-full flex flex-col list-none">
+          <!-- ADMIN ONLY: User Management -->
+          <li v-if="isAdmin" class="items-center">
+            <router-link
+              to="/admin/users"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
+                class="text-xs uppercase py-3 font-bold block"
+                :class="
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500'
+                "
+              >
+                <i
+                  class="fas fa-users-cog mr-2 text-sm"
+                  :class="isActive ? 'opacity-75' : 'text-blueGray-300'"
+                ></i>
+                Users
+              </a>
+            </router-link>
+          </li>
+
+          <!-- ADMIN ONLY: Assign Pack -->
+          <li v-if="isAdmin" class="items-center">
+            <router-link
+              to="/admin/assign-pack"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
+                class="text-xs uppercase py-3 font-bold block"
+                :class="
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500'
+                "
+              >
+                <i
+                  class="fas fa-link mr-2 text-sm"
+                  :class="isActive ? 'opacity-75' : 'text-blueGray-300'"
+                ></i>
+                Assign Pack
+              </a>
+            </router-link>
+          </li>
+
+          <!-- USER ONLY: Collaborators -->
+          <li v-if="!isAdmin" class="items-center">
+            <router-link
+              to="/admin/collaborators"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                :href="href"
+                @click="navigate"
+                class="text-xs uppercase py-3 font-bold block"
+                :class="
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500'
+                "
+              >
+                <i
+                  class="fas fa-user-friends mr-2 text-sm"
+                  :class="isActive ? 'opacity-75' : 'text-blueGray-300'"
+                ></i>
+                Collaborators
+              </a>
+            </router-link>
+          </li>
+        </ul>
+
         <!-- Divider + Logout -->
         <hr class="my-4 md:min-w-full" />
 
@@ -219,8 +303,10 @@ export default {
   components: { NotificationDropdown, UserDropdown },
   setup() {
     const bmsStore = useBmsStore();
+    const authStore = useAuthStore();
     const alertCount = computed(() => bmsStore.alerts.length);
-    return { alertCount, bmsStore };
+    const isAdmin = computed(() => authStore.isAdmin);
+    return { alertCount, isAdmin };
   },
   data() {
     return { collapseShow: "hidden" };

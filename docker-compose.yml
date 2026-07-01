@@ -60,6 +60,7 @@ services:
       MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB_NAME}?authSource=admin
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       MQTT_TOPIC_PREFIX: ${MQTT_TOPIC_PREFIX:-bms}
+      JWT_SECRET: ${JWT_SECRET}  
     ports:
       - "3000:3000"
     volumes:

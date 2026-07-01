@@ -21,6 +21,8 @@ app.use("/api/cells", cellRoutes);
 app.use("/api/alerts", alertRoutes);
 app.use("/api/packs", packRoutes);
 app.use("/api/bms-models", bmsModelRoutes); // ← BARU
+app.use("/api/auth", require("./routes/auth"));
+app.use("/api/admin/users", require("./routes/adminUsers"));
 
 app.use(errorHandler);
 

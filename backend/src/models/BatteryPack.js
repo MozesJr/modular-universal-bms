@@ -31,6 +31,50 @@ const batteryPackSchema = new mongoose.Schema(
     pack_id: { type: String, required: true, unique: true }, // e.g. PACK_001
     name: { type: String, default: "Unnamed Pack" },
 
+    // models/BatteryPack.js
+    // ... (semua field existing kamu tetap, tambahkan blok ini setelah "name")
+
+    // ── Ownership & Access Control ─────────────────────────
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    status: {
+      type: String,
+      enum: ["pending_verification", "active", "rejected", "suspended"],
+      default: "pending_verification",
+    },
+    verified_by: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    verified_at: { type: Date, default: null },
+
+    collaborators: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        permission: {
+          type: String,
+          enum: ["view", "maintain"],
+          default: "view",
+        },
+        added_at: { type: Date, default: Date.now },
+      },
+    ],
+
+    transfer_history: [
+      {
+        from: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        to: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        transferred_at: { type: Date, default: Date.now },
+        note: String,
+      },
+    ],
+
+    // ... lanjut field existing (bms_sernum, dst)
+
     // Serial number perangkat BMS hardware (bms_sernum)
     bms_sernum: { type: String, default: null },
 
@@ -67,6 +111,9 @@ const batteryPackSchema = new mongoose.Schema(
   },
   { versionKey: false },
 );
+
+batteryPackSchema.index({ owner: 1 });
+batteryPackSchema.index({ "collaborators.user": 1 });
 
 module.exports = mongoose.model(
   "BatteryPack",

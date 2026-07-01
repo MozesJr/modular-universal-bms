@@ -1,17 +1,12 @@
-/**
- * routes/cells.js
- * Query cell reading history — updated untuk skema baru
- * (pack_metrics + state field dari bms_log / cell_log)
- *
- * GET /api/cells/:packId                   — Latest per cell
- * GET /api/cells/:packId/:cellId/history   — Time-series
- * GET /api/cells/:packId/:cellId/stats     — Aggregated stats
- * GET /api/cells/:packId/pack-log          — Latest pack-level metrics (bms_log)
- */
 "use strict";
 const { Router } = require("express");
 const CellReading = require("../models/CellReading");
+const { protect, canAccessPack } = require("../middleware/auth");
 const router = Router();
+
+// Semua route di bawah ini sudah ter-prefix /:packId,
+// middleware ini otomatis berlaku untuk semua sub-route (pack-log, history, stats)
+router.use("/:packId", protect, canAccessPack);
 
 // GET /api/cells/:packId — latest reading per cell
 router.get("/:packId", async (req, res, next) => {

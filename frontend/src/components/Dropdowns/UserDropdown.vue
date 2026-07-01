@@ -1,83 +1,162 @@
 <template>
-  <div>
-    <a
-      class="text-blueGray-500 block"
-      href="#pablo"
+  <div style="position: relative">
+    <button
       ref="btnDropdownRef"
-      v-on:click="toggleDropdown($event)"
+      @click.prevent="toggleDropdown"
+      style="
+        background: rgba(255, 255, 255, 0.15);
+        border: none;
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      "
     >
-      <div class="items-center flex">
-        <span
-          class="w-12 h-12 text-sm text-white bg-blueGray-200 inline-flex items-center justify-center rounded-full"
-        >
-          <img
-            alt="..."
-            class="w-full rounded-full align-middle border-none shadow-lg"
-            :src="image"
-          />
-        </span>
+      <div
+        :style="`width:32px; height:32px; border-radius:50%; background:rgba(255,255,255,0.2); display:flex; align-items:center; justify-content:center; flex-shrink:0;`"
+      >
+        <i
+          class="fas text-white text-sm"
+          :class="isAdmin ? 'fa-shield-alt' : 'fa-user-circle'"
+        ></i>
       </div>
-    </a>
+      <div class="hidden lg:block text-left">
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 500;
+            color: white;
+            line-height: 1.2;
+          "
+        >
+          {{ username }}
+        </div>
+        <div
+          style="
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.2;
+          "
+        >
+          {{ isAdmin ? "Administrator" : "User" }}
+        </div>
+      </div>
+      <i
+        class="fas fa-chevron-down hidden lg:block"
+        style="font-size: 11px; color: rgba(255, 255, 255, 0.7)"
+      ></i>
+    </button>
+
     <div
       ref="popoverDropdownRef"
-      class="bg-white text-base z-50 float-left py-2 list-none text-left rounded shadow-lg min-w-48"
-      v-bind:class="{
-        hidden: !dropdownPopoverShow,
-        block: dropdownPopoverShow,
-      }"
+      :class="dropdownPopoverShow ? 'block' : 'hidden'"
+      style="
+        position: absolute;
+        right: 0;
+        top: calc(100% + 6px);
+        background: white;
+        border-radius: 12px;
+        min-width: 220px;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+        overflow: hidden;
+        z-index: 9999;
+        border: 0.5px solid #e5e7eb;
+      "
     >
-      <a
-        href="javascript:void(0);"
-        class="text-sm py-2 px-4 font-normal block w-full whitespace-nowrap bg-transparent text-blueGray-700"
+      <!-- Header info -->
+      <div
+        style="
+          padding: 12px 14px;
+          border-bottom: 1px solid #f1f5f9;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        "
       >
-        Action
-      </a>
-      <a
-        href="javascript:void(0);"
-        class="text-sm py-2 px-4 font-normal block w-full whitespace-nowrap bg-transparent text-blueGray-700"
+        <div
+          :style="`width:40px; height:40px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; background:${
+            isAdmin ? '#ede9fe' : '#d1fae5'
+          };`"
+        >
+          <i
+            class="fas"
+            :class="isAdmin ? 'fa-shield-alt' : 'fa-user-circle'"
+            :style="`font-size:18px; color:${isAdmin ? '#7c3aed' : '#059669'};`"
+          ></i>
+        </div>
+        <div>
+          <div style="font-size: 13px; font-weight: 600; color: #1e293b">
+            {{ username }}
+          </div>
+          <div style="font-size: 11px; color: #94a3b8">{{ email }}</div>
+          <span
+            :style="`display:inline-block; margin-top:3px; font-size:10px; font-weight:600; padding:1px 8px; border-radius:20px; background:${
+              isAdmin ? '#ede9fe' : '#d1fae5'
+            }; color:${isAdmin ? '#7c3aed' : '#059669'};`"
+          >
+            {{ isAdmin ? "Administrator" : "User" }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Logout -->
+      <button
+        @click="handleLogout"
+        style="
+          width: 100%;
+          padding: 10px 14px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: transparent;
+          border: none;
+          cursor: pointer;
+          color: #ef4444;
+          font-size: 13px;
+          text-align: left;
+        "
+        onmouseover="this.style.background='#fef2f2'"
+        onmouseout="this.style.background='transparent'"
       >
-        Another action
-      </a>
-      <a
-        href="javascript:void(0);"
-        class="text-sm py-2 px-4 font-normal block w-full whitespace-nowrap bg-transparent text-blueGray-700"
-      >
-        Something else here
-      </a>
-      <div class="h-0 my-2 border border-solid border-blueGray-100" />
-      <a
-        href="javascript:void(0);"
-        class="text-sm py-2 px-4 font-normal block w-full whitespace-nowrap bg-transparent text-blueGray-700"
-      >
-        Seprated link
-      </a>
+        <i class="fas fa-sign-out-alt" style="font-size: 14px"></i>
+        Logout
+      </button>
     </div>
   </div>
 </template>
 
 <script>
 import { createPopper } from "@popperjs/core";
-
-import image from "@/assets/img/team-1-800x800.jpg";
+import { useAuthStore } from "@/stores/authStore";
+import { computed } from "vue";
 
 export default {
-  data() {
+  setup() {
+    const auth = useAuthStore();
     return {
-      dropdownPopoverShow: false,
-      image: image,
+      username: computed(() => auth.user?.username || "User"),
+      email: computed(() => auth.user?.email || ""),
+      isAdmin: computed(() => auth.isAdmin),
     };
   },
+  data() {
+    return { dropdownPopoverShow: false };
+  },
   methods: {
-    toggleDropdown: function (event) {
-      event.preventDefault();
+    toggleDropdown() {
+      this.dropdownPopoverShow = !this.dropdownPopoverShow;
       if (this.dropdownPopoverShow) {
-        this.dropdownPopoverShow = false;
-      } else {
-        this.dropdownPopoverShow = true;
         createPopper(this.$refs.btnDropdownRef, this.$refs.popoverDropdownRef, {
-          placement: "bottom-start",
+          placement: "bottom-end",
         });
       }
+    },
+    handleLogout() {
+      const auth = useAuthStore();
+      auth.logout();
+      this.$router.push("/auth/login");
     },
   },
 };

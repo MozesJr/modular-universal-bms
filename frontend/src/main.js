@@ -20,6 +20,13 @@ import Alerts from "@/views/admin/Alerts.vue";
 import PackConfig from "@/views/admin/PackConfig.vue";
 import PackDetail from "@/views/admin/PackDetail.vue";
 import PackForm from "@/views/admin/PackForm.vue";
+import UserManagement from "@/views/admin/UserManagement.vue";
+import UserForm from "@/views/admin/UserForm.vue";
+import UserResetPassword from "@/views/admin/UserResetPassword.vue";
+
+import AssignPack from "@/views/admin/AssignPack.vue";
+import AssignPackForm from "@/views/admin/AssignPackForm.vue";
+import Collaborators from "@/views/admin/Collaborators.vue";
 
 // auth views
 import Login from "@/views/auth/Login.vue";
@@ -43,6 +50,38 @@ const routes = [
       { path: "/admin/settings", component: Settings },
       { path: "/admin/tables", component: Tables },
       { path: "/admin/maps", component: Maps },
+      {
+        path: "/admin/users",
+        component: UserManagement,
+        meta: { requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: "/admin/user-form",
+        component: UserForm,
+        meta: { requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: "/admin/user-reset-password",
+        component: UserResetPassword,
+        meta: { requiresAuth: true, requiresAdmin: true },
+      },
+
+      //collab
+      {
+        path: "/admin/assign-pack",
+        component: AssignPack,
+        meta: { requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: "/admin/assign-pack-form",
+        component: AssignPackForm,
+        meta: { requiresAuth: true, requiresAdmin: true },
+      },
+      {
+        path: "/admin/collaborators",
+        component: Collaborators,
+        meta: { requiresAuth: true },
+      },
     ],
   },
   {
@@ -61,12 +100,17 @@ const routes = [
 const router = createRouter({ history: createWebHistory(), routes });
 
 // ── Nav guard ──────────────────────────────────────────────
-// Import store after pinia is created (done below)
 router.beforeEach((to) => {
-  const authed = localStorage.getItem("bms_authed") === "true";
-  if (to.meta.requiresAuth && !authed) return "/";
-  // Redirect already-logged-in users away from login page
-  if (to.path === "/auth/login" && authed) return "/admin/dashboard";
+  const token = localStorage.getItem("bms_token"); // ← ganti dari bms_authed
+  const user = JSON.parse(localStorage.getItem("bms_user") || "null");
+  const authed = !!token;
+
+  if (to.meta.requiresAuth && !authed) return "/auth/login"; // ← redirect ke login, bukan "/"
+  if (to.meta.requiresAdmin && user?.role !== "admin")
+    return "/admin/dashboard";
+  if ((to.path === "/auth/login" || to.path === "/auth/register") && authed) {
+    return "/admin/dashboard";
+  }
 });
 
 const pinia = createPinia();
