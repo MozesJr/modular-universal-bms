@@ -100,6 +100,30 @@
             </router-link>
           </li>
 
+          <li class="items-center">
+            <router-link
+              to="/admin/bms-config"
+              v-slot="{ href, navigate, isActive }"
+            >
+              <a
+                href="href"
+                @click="navigate"
+                class="text-xs uppercase py-3 font-bold block"
+                :class="[
+                  isActive
+                    ? 'text-emerald-500 hover:text-emerald-600'
+                    : 'text-blueGray-700 hover:text-blueGray-500',
+                ]"
+              >
+                <i
+                  class="fas fa-microchip mr-2 text-sm"
+                  :class="[isActive ? 'opacity-75' : 'text-blueGray-300']"
+                ></i>
+                BMS Devices
+              </a>
+            </router-link>
+          </li>
+
           <!-- Pack Detail (Drill-down BMS) — MENU BARU -->
           <li class="items-center">
             <router-link
@@ -222,10 +246,10 @@
             </router-link>
           </li>
 
-          <!-- ADMIN ONLY: Assign Pack -->
+          <!-- ADMIN ONLY: Assign BMS -->
           <li v-if="isAdmin" class="items-center">
             <router-link
-              to="/admin/assign-pack"
+              to="/admin/assign-bms"
               v-slot="{ href, navigate, isActive }"
             >
               <a
@@ -242,7 +266,7 @@
                   class="fas fa-link mr-2 text-sm"
                   :class="isActive ? 'opacity-75' : 'text-blueGray-300'"
                 ></i>
-                Assign Pack
+                Assign BMS
               </a>
             </router-link>
           </li>

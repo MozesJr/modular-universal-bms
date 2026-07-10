@@ -141,7 +141,7 @@ export default {
       this.loading = true;
       this.error = "";
       try {
-        await api.patch(`/packs/${this.packId}/assign`, {
+        await api.patch(`/bms/${this.bmsId}/assign`, {
           userId: this.selectedUserId,
         });
         this.$router.push("/admin/assign-pack");

@@ -44,14 +44,16 @@ import UserDropdown from "@/components/Dropdowns/UserDropdown.vue";
 const PAGE_TITLES = {
   "/admin/dashboard": "Dashboard",
   "/admin/alerts": "Alerts",
+  "/admin/bms-config": "BMS Devices", // 🆕
+  "/admin/bms-form": "BMS Form", // 🆕
   "/admin/config": "Pack Config",
   "/admin/pack-detail": "Pack Detail",
   "/admin/pack-form": "Pack Form",
   "/admin/users": "User Management",
   "/admin/user-form": "User Form",
   "/admin/user-reset-password": "Reset Password",
-  "/admin/assign-pack": "Assign Pack",
-  "/admin/assign-pack-form": "Assign Pack",
+  "/admin/assign-bms": "Assign BMS", // ganti dari assign-pack
+  "/admin/assign-bms-form": "Assign BMS", // ganti dari assign-pack-form
   "/admin/collaborators": "Collaborators",
 };
 

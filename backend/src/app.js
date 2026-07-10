@@ -9,6 +9,7 @@ const alertRoutes = require("./routes/alerts");
 const packRoutes = require("./routes/packs");
 const bmsModelRoutes = require("./routes/bmsModels"); // ← BARU
 const errorHandler = require("./middleware/errorHandler");
+const bmsRoutes = require("./routes/bms"); // ← BARU
 
 const app = express();
 
@@ -23,6 +24,9 @@ app.use("/api/packs", packRoutes);
 app.use("/api/bms-models", bmsModelRoutes); // ← BARU
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/admin/users", require("./routes/adminUsers"));
+
+app.use("/api/users", require("./routes/users")); // 🆕
+app.use("/api/bms", bmsRoutes);
 
 app.use(errorHandler);
 

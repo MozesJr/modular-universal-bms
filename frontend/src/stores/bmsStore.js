@@ -5,16 +5,14 @@ import api from "@/services/api";
 export const useBmsStore = defineStore("bms", () => {
   const packs = ref([]);
   const bmsModels = ref([]);
+  const bmsDevices = ref([]); // 🆕 daftar BMS device
   const selectedPackId = ref(null);
   const alerts = ref([]);
   const alertLogs = ref([]);
   const HISTORY_MAX = 60;
 
-  // ── FIX: Ganti Map dengan reactive object biasa ────────────
-  // Map tidak reactive di Vue 3 ref() — gunakan plain object
-  // key: "PACK_001:1", value: reading object
-  const cellReadings = ref({}); // { "PACK_001:1": {...}, ... }
-  const cellHistory = ref({}); // { "PACK_001:1": [...], ... }
+  const cellReadings = ref({});
+  const cellHistory = ref({});
 
   // ── Computed ──────────────────────────────────────────────
   const selectedPack = computed(() =>
@@ -32,7 +30,7 @@ export const useBmsStore = defineStore("bms", () => {
 
   const hasActiveAlert = computed(() => alerts.value.length > 0);
 
-  // ── BmsModel ──────────────────────────────────────────────
+  // ── BmsModel (katalog tipe — tidak berubah) ────────────────
   async function fetchBmsModels() {
     const { data } = await api.get("/bms-models");
     bmsModels.value = data;
@@ -45,7 +43,37 @@ export const useBmsStore = defineStore("bms", () => {
     return data;
   }
 
-  // ── Pack CRUD ─────────────────────────────────────────────
+  // ── 🆕 Bms Device CRUD ──────────────────────────────────────
+  async function fetchBmsDevices() {
+    const { data } = await api.get("/bms");
+    bmsDevices.value = data;
+    return data;
+  }
+
+  async function createBms(bmsData) {
+    const { data } = await api.post("/bms", bmsData);
+    bmsDevices.value.push(data);
+    return data;
+  }
+
+  async function updateBms(bmsId, bmsData) {
+    const { data } = await api.put(`/bms/${bmsId}`, bmsData);
+    const idx = bmsDevices.value.findIndex((b) => b.bms_id === bmsId);
+    if (idx !== -1) bmsDevices.value.splice(idx, 1, data);
+    return data;
+  }
+
+  async function deleteBms(bmsId) {
+    await api.delete(`/bms/${bmsId}`);
+    bmsDevices.value = bmsDevices.value.filter((b) => b.bms_id !== bmsId);
+  }
+
+  async function fetchPacksForBms(bmsId) {
+    const { data } = await api.get(`/bms/${bmsId}/packs`);
+    return data;
+  }
+
+  // ── Pack CRUD (config only, bms_id wajib) ──────────────────
   async function fetchPacks() {
     const { data } = await api.get("/packs");
     packs.value = data;
@@ -71,7 +99,6 @@ export const useBmsStore = defineStore("bms", () => {
     await api.delete(`/packs/${packId}`);
     packs.value = packs.value.filter((p) => p.pack_id !== packId);
 
-    // Hapus readings & history terkait pack ini
     const keysToDelete = Object.keys(cellReadings.value).filter((k) =>
       k.startsWith(packId + ":"),
     );
@@ -85,11 +112,9 @@ export const useBmsStore = defineStore("bms", () => {
     }
   }
 
-  // ── Real-time readings ────────────────────────────────────
+  // ── Real-time readings (tidak berubah) ─────────────────────
   function applyReading(reading) {
     const key = `${reading.pack_id}:${reading.cell_id}`;
-
-    // Flatten metrics ke root untuk akses mudah di template
     const flat = {
       ...reading,
       voltage: reading.metrics?.voltage ?? 0,
@@ -99,18 +124,14 @@ export const useBmsStore = defineStore("bms", () => {
       soh: reading.metrics?.soh ?? 100,
       state: reading.state ?? "normal",
     };
-
-    // Reactive assignment ke plain object
     cellReadings.value[key] = flat;
 
-    // History
     if (!cellHistory.value[key]) cellHistory.value[key] = [];
     cellHistory.value[key].push(reading);
     if (cellHistory.value[key].length > HISTORY_MAX) {
       cellHistory.value[key].shift();
     }
 
-    // Alert
     if (reading.alerts && reading.alerts.length) {
       alerts.value.unshift({ ...flat, timestamp: reading.timestamp });
       if (alerts.value.length > 50) alerts.value.pop();
@@ -121,7 +142,7 @@ export const useBmsStore = defineStore("bms", () => {
     return cellHistory.value[`${packId}:${cellId}`] || [];
   }
 
-  // ── Alerts ────────────────────────────────────────────────
+  // ── Alerts (tidak berubah) ──────────────────────────────────
   async function fetchAlertLogs() {
     const { data } = await api.get("/alerts");
     alertLogs.value = data;
@@ -148,6 +169,7 @@ export const useBmsStore = defineStore("bms", () => {
   return {
     packs,
     bmsModels,
+    bmsDevices,
     selectedPackId,
     selectedPack,
     cellReadings,
@@ -162,6 +184,11 @@ export const useBmsStore = defineStore("bms", () => {
     deletePack,
     fetchBmsModels,
     createBmsModel,
+    fetchBmsDevices,
+    createBms,
+    updateBms,
+    deleteBms,
+    fetchPacksForBms,
     applyReading,
     getCellHistory,
     fetchCellHistory,

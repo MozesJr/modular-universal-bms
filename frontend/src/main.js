@@ -24,9 +24,15 @@ import UserManagement from "@/views/admin/UserManagement.vue";
 import UserForm from "@/views/admin/UserForm.vue";
 import UserResetPassword from "@/views/admin/UserResetPassword.vue";
 
-import AssignPack from "@/views/admin/AssignPack.vue";
-import AssignPackForm from "@/views/admin/AssignPackForm.vue";
+// import AssignPack from "@/views/admin/AssignPack.vue";
+// import AssignPackForm from "@/views/admin/AssignPackForm.vue";
 import Collaborators from "@/views/admin/Collaborators.vue";
+
+import AssignBms from "@/views/admin/AssignBms.vue"; // rename
+import AssignBmsForm from "@/views/admin/AssignBmsForm.vue"; // rename
+
+import BmsConfig from "@/views/admin/BmsConfig.vue"; // 🆕
+import BmsForm from "@/views/admin/BmsForm.vue"; // 🆕
 
 // auth views
 import Login from "@/views/auth/Login.vue";
@@ -50,6 +56,9 @@ const routes = [
       { path: "/admin/settings", component: Settings },
       { path: "/admin/tables", component: Tables },
       { path: "/admin/maps", component: Maps },
+
+      { path: "/admin/bms-config", component: BmsConfig }, // 🆕
+      { path: "/admin/bms-form", component: BmsForm }, // 🆕
       {
         path: "/admin/users",
         component: UserManagement,
@@ -68,13 +77,13 @@ const routes = [
 
       //collab
       {
-        path: "/admin/assign-pack",
-        component: AssignPack,
+        path: "/admin/assign-bms", // ganti dari assign-pack
+        component: AssignBms,
         meta: { requiresAuth: true, requiresAdmin: true },
       },
       {
-        path: "/admin/assign-pack-form",
-        component: AssignPackForm,
+        path: "/admin/assign-bms-form", // ganti dari assign-pack-form
+        component: AssignBmsForm,
         meta: { requiresAuth: true, requiresAdmin: true },
       },
       {

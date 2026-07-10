@@ -49,7 +49,7 @@
             <i class="fas fa-check-circle"></i> {{ successMsg }}
           </div>
 
-          <!-- ── Section 1: Identitas Pack ──────────────────── -->
+          <!-- GANTI Section 1 & 2 dengan ini -->
           <div class="flex flex-wrap mb-6">
             <div class="w-full mb-4">
               <h6
@@ -58,16 +58,15 @@
                 <span
                   class="inline-block h-2 w-2 rounded-full bg-indigo-500"
                 ></span>
-                Pack Register Identity
+                Pack Identity & Parent BMS
               </h6>
             </div>
 
             <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+                >Pack Identifier *</label
               >
-                Pack Identifier *
-              </label>
               <input
                 v-model="form.pack_id"
                 :disabled="isEditMode"
@@ -80,12 +79,11 @@
             <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+                >Display Name</label
               >
-                Display Name
-              </label>
               <input
                 v-model="form.name"
-                placeholder="e.g. Solar Storage Bank"
+                placeholder="e.g. Cluster A"
                 class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
               />
             </div>
@@ -93,93 +91,35 @@
             <div class="w-full lg:w-4/12 px-2 mb-4">
               <label
                 class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
+                >Parent BMS Device *</label
               >
-                Serial Number BMS
-              </label>
-              <input
-                v-model="form.bms_sernum"
-                placeholder="e.g. BMS-SN-20260001"
-                class="border-0 px-3 py-3 placeholder-blueGray-300 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
-              />
+              <select
+                v-model="form.bms_id"
+                :disabled="isEditMode"
+                required
+                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full disabled:bg-blueGray-100"
+              >
+                <option value="">— Pilih BMS Device —</option>
+                <option
+                  v-for="b in bmsStore.bmsDevices"
+                  :key="b.bms_id"
+                  :value="b.bms_id"
+                >
+                  {{ b.bms_id }} · {{ b.name }}
+                </option>
+              </select>
+              <p class="text-xs text-blueGray-400 mt-1">
+                Belum ada device?
+                <router-link
+                  to="/admin/bms-form"
+                  class="text-indigo-500 hover:underline"
+                  >Daftarkan BMS baru</router-link
+                >
+              </p>
             </div>
           </div>
 
           <hr class="border-blueGray-200 mb-6" />
-
-          <!-- ── Section 2: BMS Model & Hardware Info ───────── -->
-          <div class="flex flex-wrap mb-6">
-            <div class="w-full mb-4">
-              <h6
-                class="text-blueGray-400 text-xs font-bold uppercase tracking-wider flex items-center gap-2"
-              >
-                <span
-                  class="inline-block h-2 w-2 rounded-full bg-purple-500"
-                ></span>
-                BMS Hardware Info
-              </h6>
-            </div>
-
-            <div class="w-full lg:w-4/12 px-2 mb-4">
-              <label
-                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
-              >
-                Model BMS
-              </label>
-              <select
-                v-model="form.bms_model_name"
-                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
-              >
-                <option value="">— Pilih model (opsional) —</option>
-                <option
-                  v-for="m in bmsStore.bmsModels"
-                  :key="m._id"
-                  :value="m.model_name"
-                >
-                  {{ m.model_name }}
-                </option>
-              </select>
-              <p class="text-xs text-blueGray-400 mt-1">
-                Kelola model di
-                <router-link
-                  to="/admin/config"
-                  class="text-indigo-500 hover:underline"
-                  >Pack Config</router-link
-                >
-              </p>
-            </div>
-
-            <div class="w-full lg:w-4/12 px-2 mb-4">
-              <label
-                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
-              >
-                Cycle Count
-              </label>
-              <input
-                v-model.number="form.cycle_count"
-                type="number"
-                min="0"
-                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full font-mono"
-              />
-            </div>
-
-            <div class="w-full lg:w-4/12 px-2 mb-4">
-              <label
-                class="block uppercase text-blueGray-500 text-xs font-bold mb-2"
-              >
-                Status / State
-              </label>
-              <select
-                v-model="form.state"
-                class="border-0 px-3 py-3 text-blueGray-600 bg-white rounded text-sm shadow focus:outline-none focus:ring w-full"
-              >
-                <option value="standby">Standby</option>
-                <option value="normal">Normal</option>
-                <option value="charging">Charging</option>
-                <option value="discharging">Discharging</option>
-                <option value="fault">Fault</option>
-              </select>
-            </div>
-          </div>
 
           <hr class="border-blueGray-200 mb-6" />
 
@@ -456,9 +396,8 @@ const PRESETS = {
 
 const BLANK = () => ({
   pack_id: "",
+  bms_id: route.query.bmsId || "", // 🆕 prefill dari query kalau datang dari BmsConfig
   name: "",
-  bms_sernum: "",
-  bms_model_name: "",
   chemistry: "LiFePO4",
   cell_count: 4,
   capacity_ah: 100,
@@ -476,6 +415,7 @@ const successMsg = ref("");
 
 onMounted(async () => {
   await bmsStore.fetchPacks();
+  await bmsStore.fetchBmsDevices(); // 🆕
   await bmsStore.fetchBmsModels();
 
   if (isEditMode.value) {
@@ -484,9 +424,8 @@ onMounted(async () => {
     if (existing) {
       Object.assign(form, {
         pack_id: existing.pack_id,
+        bms_id: existing.bms_id, // 🆕
         name: existing.name ?? "",
-        bms_sernum: existing.bms_sernum ?? "",
-        bms_model_name: existing.bms_model_name ?? "",
         chemistry: existing.chemistry ?? "LiFePO4",
         cell_count: existing.cell_count ?? 4,
         capacity_ah: existing.capacity_ah ?? 100,

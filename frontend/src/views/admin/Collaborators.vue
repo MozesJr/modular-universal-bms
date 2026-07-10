@@ -12,39 +12,32 @@
             <div>
               <h6 class="text-blueGray-700 text-xl font-bold">Collaborators</h6>
               <p class="text-blueGray-400 text-sm mt-1">
-                Kelola akses kolaborasi pada pack milikmu
+                Kelola akses kolaborasi pada BMS device milikmu
               </p>
             </div>
           </div>
         </div>
 
-        <!-- Pack selector -->
+        <!-- BMS selector -->
         <div
           class="bg-white rounded-lg shadow px-4 py-3 mb-4 flex gap-3 items-center"
         >
           <label class="text-sm font-semibold text-blueGray-600"
-            >Pilih Pack:</label
+            >Pilih BMS:</label
           >
           <select
-            v-model="selectedPackId"
+            v-model="selectedBmsId"
             class="border border-blueGray-200 rounded px-3 py-2 text-sm focus:outline-none"
             @change="loadCollaborators"
           >
-            <option value="">-- Pilih Pack --</option>
-            <option
-              v-for="pack in ownedPacks"
-              :key="pack._id"
-              :value="pack.pack_id"
-            >
-              {{ pack.pack_id }} · {{ pack.name || "Unnamed" }}
+            <option value="">-- Pilih BMS --</option>
+            <option v-for="bms in ownedBms" :key="bms._id" :value="bms.bms_id">
+              {{ bms.bms_id }} · {{ bms.name || "Unnamed" }}
             </option>
           </select>
         </div>
 
-        <div
-          v-if="selectedPackId"
-          class="grid grid-cols-1 lg:grid-cols-2 gap-4"
-        >
+        <div v-if="selectedBmsId" class="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <!-- Collaborator list -->
           <div class="bg-white shadow-lg rounded-lg p-4">
             <div class="flex justify-between items-center mb-4">
@@ -55,7 +48,7 @@
               v-if="collaborators.length === 0"
               class="text-center py-6 text-blueGray-400 text-sm"
             >
-              Belum ada collaborator di pack ini
+              Belum ada collaborator di BMS ini
             </div>
 
             <div
@@ -79,7 +72,6 @@
                 </div>
               </div>
               <div class="flex items-center gap-2">
-                <!-- Toggle permission -->
                 <select
                   v-model="collab.permission"
                   @change="updatePermission(collab)"
@@ -88,7 +80,6 @@
                   <option value="view">View</option>
                   <option value="maintain">Maintain</option>
                 </select>
-                <!-- Remove -->
                 <button
                   @click="removeCollaborator(collab.user._id)"
                   class="text-red-400 hover:text-red-600 text-sm"
@@ -172,8 +163,8 @@ import api from "@/services/api";
 export default {
   data() {
     return {
-      ownedPacks: [],
-      selectedPackId: "",
+      ownedBms: [],
+      selectedBmsId: "",
       collaborators: [],
       allUsers: [],
       newCollab: { userId: "", permission: "view" },
@@ -182,30 +173,27 @@ export default {
     };
   },
   computed: {
-    // user yang belum jadi collab dan bukan owner
     availableUsers() {
       const collabIds = this.collaborators.map((c) => c.user._id);
       return this.allUsers.filter((u) => !collabIds.includes(u._id));
     },
   },
   async created() {
-    const [packsRes, usersRes] = await Promise.all([
-      api.get("/packs"),
-      api.get("/admin/users").catch(() => ({ data: [] })),
+    const [bmsRes, usersRes] = await Promise.all([
+      api.get("/bms"),
+      api.get("/users").catch(() => ({ data: [] })),
     ]);
-    // hanya pack yang dia owns (bukan collab)
-    this.ownedPacks = packsRes.data.filter((p) => p.status === "active");
+    this.ownedBms = bmsRes.data.filter((b) => b.status === "active");
     this.allUsers = usersRes.data;
   },
   methods: {
     async loadCollaborators() {
-      if (!this.selectedPackId) return;
-      try {
-        const { data } = await api.get(`/packs/${this.selectedPackId}`);
-        this.collaborators = data.collaborators || [];
-      } catch (err) {
-        console.error(err);
+      if (!this.selectedBmsId) {
+        this.collaborators = [];
+        return;
       }
+      const { data } = await api.get(`/bms/${this.selectedBmsId}`);
+      this.collaborators = data.collaborators || [];
     },
 
     async addCollaborator() {
@@ -213,13 +201,13 @@ export default {
       this.addLoading = true;
       try {
         const { data } = await api.post(
-          `/packs/${this.selectedPackId}/collaborators`,
+          `/bms/${this.selectedBmsId}/collaborators`,
           {
             collaboratorId: this.newCollab.userId,
             permission: this.newCollab.permission,
           },
         );
-        this.collaborators = data.pack.collaborators || [];
+        this.collaborators = data.bms.collaborators || [];
         this.newCollab = { userId: "", permission: "view" };
       } catch (err) {
         this.addError =
@@ -231,7 +219,7 @@ export default {
 
     async updatePermission(collab) {
       try {
-        await api.post(`/packs/${this.selectedPackId}/collaborators`, {
+        await api.post(`/bms/${this.selectedBmsId}/collaborators`, {
           collaboratorId: collab.user._id,
           permission: collab.permission,
         });
@@ -244,12 +232,12 @@ export default {
       if (!confirm("Hapus collaborator ini?")) return;
       try {
         const { data } = await api.delete(
-          `/packs/${this.selectedPackId}/collaborators`,
+          `/bms/${this.selectedBmsId}/collaborators`,
           {
             data: { collaboratorId: userId },
           },
         );
-        this.collaborators = data.pack.collaborators || [];
+        this.collaborators = data.bms.collaborators || [];
       } catch (err) {
         alert(err.response?.data?.error || "Gagal menghapus collaborator");
       }

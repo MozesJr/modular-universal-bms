@@ -30,15 +30,44 @@ exports.isAdmin = (req, res, next) => {
   next();
 };
 
-// Helper: cek apakah user adalah owner ATAU collaborator dari BMS tertentu
+// ── Akses ke Pack — resolve lewat Bms induknya ────────────────
 exports.canAccessPack = async (req, res, next) => {
-  const BatteryPack = require("../models/BatteryPack"); // bukan BatteryPackModel
-  const pack = await BatteryPack.findOne({ pack_id: req.params.packId }); // bukan packId
+  const Pack = require("../models/Pack");
+  const Bms = require("../models/Bms");
 
-  if (!pack) return res.status(404).json({ message: "BMS tidak ditemukan" });
+  const pack = await Pack.findOne({ pack_id: req.params.packId });
+  if (!pack) return res.status(404).json({ message: "Pack tidak ditemukan" });
 
-  const isOwner = pack.owner.equals(req.user._id);
-  const collab = pack.collaborators.find((c) => c.user.equals(req.user._id));
+  const bms = await Bms.findOne({ bms_id: pack.bms_id });
+  if (!bms)
+    return res
+      .status(404)
+      .json({ message: "BMS induk pack ini tidak ditemukan" });
+
+  const isOwner = bms.owner.equals(req.user._id);
+  const collab = bms.collaborators.find((c) => c.user.equals(req.user._id));
+  const isAdmin = req.user.role === "admin";
+
+  if (!isOwner && !collab && !isAdmin) {
+    return res
+      .status(403)
+      .json({ message: "Anda tidak punya akses ke BMS pemilik pack ini" });
+  }
+
+  req.pack = pack;
+  req.bms = bms;
+  req.accessLevel = isAdmin ? "admin" : isOwner ? "owner" : collab.permission;
+  next();
+};
+
+// ── Akses langsung ke Bms (buat routes/bms.js) ────────────────
+exports.canAccessBms = async (req, res, next) => {
+  const Bms = require("../models/Bms");
+  const bms = await Bms.findOne({ bms_id: req.params.bmsId });
+  if (!bms) return res.status(404).json({ message: "BMS tidak ditemukan" });
+
+  const isOwner = bms.owner.equals(req.user._id);
+  const collab = bms.collaborators.find((c) => c.user.equals(req.user._id));
   const isAdmin = req.user.role === "admin";
 
   if (!isOwner && !collab && !isAdmin) {
@@ -47,17 +76,24 @@ exports.canAccessPack = async (req, res, next) => {
       .json({ message: "Anda tidak punya akses ke BMS ini" });
   }
 
-  req.pack = pack;
+  req.bms = bms;
   req.accessLevel = isAdmin ? "admin" : isOwner ? "owner" : collab.permission;
   next();
 };
 
 exports.getAccessiblePackIds = async (user) => {
-  const BatteryPack = require("../models/BatteryPack");
-  if (user.role === "admin") return null; // null = tidak perlu filter, lihat semua
-  const packs = await BatteryPack.find({
+  const Bms = require("../models/Bms");
+  const Pack = require("../models/Pack");
+  if (user.role === "admin") return null;
+
+  const bmsList = await Bms.find({
     $or: [{ owner: user._id }, { "collaborators.user": user._id }],
   })
+    .select("bms_id")
+    .lean();
+
+  const bmsIds = bmsList.map((b) => b.bms_id);
+  const packs = await Pack.find({ bms_id: { $in: bmsIds } })
     .select("pack_id")
     .lean();
   return packs.map((p) => p.pack_id);

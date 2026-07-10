@@ -13,7 +13,7 @@
 
 const mqtt = require("mqtt");
 const CellReading = require("../models/CellReading");
-const BatteryPack = require("../models/BatteryPack");
+const Pack = require("../models/Pack");
 const AlertLog = require("../models/AlertLog");
 
 const packConfigCache = new Map();

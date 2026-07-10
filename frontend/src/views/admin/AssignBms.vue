@@ -204,10 +204,11 @@ export default {
   },
   methods: {
     async fetchPacks() {
+      // rename jadi fetchBms()
       this.loading = true;
       try {
-        const { data } = await api.get("/packs");
-        this.packs = data;
+        const { data } = await api.get("/bms"); // ganti dari /packs
+        this.packs = data; // bisa tetap nama variabel `packs` internal atau rename `bmsList`
       } catch (err) {
         console.error(err);
       } finally {
