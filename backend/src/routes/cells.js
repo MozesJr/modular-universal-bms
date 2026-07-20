@@ -1,11 +1,12 @@
 "use strict";
 const { Router } = require("express");
 const CellReading = require("../models/CellReading");
+const CellReadingBatch = require("../models/CellReadingBatch");
 const { protect, canAccessPack } = require("../middleware/auth");
 const router = Router();
 
 // Semua route di bawah ini sudah ter-prefix /:packId,
-// middleware ini otomatis berlaku untuk semua sub-route (pack-log, history, stats)
+// middleware ini otomatis berlaku untuk semua sub-route (pack-log, history, stats, batches)
 router.use("/:packId", protect, canAccessPack);
 
 // GET /api/cells/:packId — latest reading per cell
@@ -26,7 +27,6 @@ router.get("/:packId", async (req, res, next) => {
 });
 
 // GET /api/cells/:packId/pack-log — latest pack-level (bms_log) metrics
-// Ambil dari cell_id=1 (atau cell pertama yang ada pack_metrics)
 router.get("/:packId/pack-log", async (req, res, next) => {
   try {
     const { packId } = req.params;
@@ -43,7 +43,7 @@ router.get("/:packId/pack-log", async (req, res, next) => {
   }
 });
 
-// GET /api/cells/:packId/:cellId/history
+// GET /api/cells/:packId/:cellId/history — data RAW (real-time), resolusi tinggi, rentang pendek
 router.get("/:packId/:cellId/history", async (req, res, next) => {
   try {
     const { packId, cellId } = req.params;
@@ -52,7 +52,6 @@ router.get("/:packId/:cellId/history", async (req, res, next) => {
       ? new Date(req.query.from)
       : new Date(to - 3600 * 1000);
     const limit = Math.min(parseInt(req.query.limit) || 500, 2000);
-
     const readings = await CellReading.find({
       pack_id: packId,
       cell_id: parseInt(cellId),
@@ -62,7 +61,6 @@ router.get("/:packId/:cellId/history", async (req, res, next) => {
       .sort({ timestamp: 1 })
       .limit(limit)
       .lean();
-
     res.json({
       pack_id: packId,
       cell_id: parseInt(cellId),
@@ -75,7 +73,36 @@ router.get("/:packId/:cellId/history", async (req, res, next) => {
   }
 });
 
-// GET /api/cells/:packId/:cellId/stats
+// GET /api/cells/:packId/:cellId/batches — data BATCH (agregat per jam), rentang panjang
+router.get("/:packId/:cellId/batches", async (req, res, next) => {
+  try {
+    const { packId, cellId } = req.params;
+    const to = req.query.to ? new Date(req.query.to) : new Date();
+    const from = req.query.from
+      ? new Date(req.query.from)
+      : new Date(to - 30 * 86400 * 1000); // default 30 hari
+    const limit = Math.min(parseInt(req.query.limit) || 720, 5000);
+    const batches = await CellReadingBatch.find({
+      pack_id: packId,
+      cell_id: parseInt(cellId),
+      period_start: { $gte: from, $lte: to },
+    })
+      .sort({ period_start: 1 })
+      .limit(limit)
+      .lean();
+    res.json({
+      pack_id: packId,
+      cell_id: parseInt(cellId),
+      from,
+      to,
+      data: batches,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/cells/:packId/:cellId/stats — tetap sama seperti sebelumnya (agregat on-the-fly)
 router.get("/:packId/:cellId/stats", async (req, res, next) => {
   try {
     const { packId, cellId } = req.params;
@@ -83,7 +110,6 @@ router.get("/:packId/:cellId/stats", async (req, res, next) => {
     const from = req.query.from
       ? new Date(req.query.from)
       : new Date(to - 86400 * 1000);
-
     const [stats] = await CellReading.aggregate([
       {
         $match: {
@@ -112,7 +138,6 @@ router.get("/:packId/:cellId/stats", async (req, res, next) => {
         },
       },
     ]);
-
     res.json({
       pack_id: packId,
       cell_id: parseInt(cellId),

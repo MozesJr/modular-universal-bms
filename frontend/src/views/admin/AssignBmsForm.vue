@@ -10,27 +10,27 @@
         >
           <div class="flex justify-between items-center">
             <div>
-              <h6 class="text-blueGray-700 text-xl font-bold">Assign Pack</h6>
+              <h6 class="text-blueGray-700 text-xl font-bold">Assign BMS</h6>
               <p class="text-blueGray-400 text-sm mt-1">
-                Kelola kepemilikan dan verifikasi BMS pack
+                Kelola kepemilikan dan verifikasi BMS device
               </p>
             </div>
             <router-link
               to="/admin/assign-pack"
               class="bg-emerald-500 text-white active:bg-emerald-600 font-bold uppercase text-xs px-4 py-2 rounded shadow hover:shadow-md outline-none focus:outline-none ease-linear transition-all duration-150 flex items-center gap-1"
             >
-              <i class="fas fa-arrow-left mr-1"></i> Kembali ke Assign Pack
+              <i class="fas fa-arrow-left mr-1"></i> Kembali ke Assign BMS
             </router-link>
           </div>
         </div>
 
         <div class="bg-white shadow-lg rounded-lg p-6">
           <h2 class="text-xl font-bold text-blueGray-700 mb-1">
-            Assign Pack ke User
+            Assign BMS ke User
           </h2>
           <p class="text-blueGray-400 text-sm mb-6">
             Pindahkan kepemilikan
-            <strong class="text-blueGray-600">{{ packId }}</strong> ke user lain
+            <strong class="text-blueGray-600">{{ bmsId }}</strong> ke user lain
           </p>
 
           <div
@@ -81,27 +81,24 @@
               >
                 {{ selectedUser.role }}
               </span>
-              <span class="text-xs text-blueGray-400 ml-2">
-                {{ selectedUser.packCount }} pack dimiliki
-              </span>
             </div>
           </div>
 
-          <div class="flex justify-end gap-3 mt-6">
+          <div class="mt-6 flex gap-3">
+            <button
+              @click="submit"
+              :disabled="!selectedUserId || loading"
+              class="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold text-sm px-4 py-2 rounded shadow"
+            >
+              <i class="fas fa-spinner fa-spin mr-1" v-if="loading"></i>
+              Assign BMS
+            </button>
             <router-link
               to="/admin/assign-pack"
-              class="px-4 py-2 text-sm text-blueGray-500 hover:text-blueGray-700"
+              class="text-blueGray-500 hover:text-blueGray-700 text-sm px-4 py-2"
             >
               Batal
             </router-link>
-            <button
-              @click="submit"
-              :disabled="loading || !selectedUserId"
-              class="px-6 py-2 text-sm font-bold text-white bg-blueGray-700 hover:bg-blueGray-800 rounded shadow disabled:opacity-50"
-            >
-              <i class="fas fa-spinner fa-spin mr-1" v-if="loading"></i>
-              Assign Pack
-            </button>
           </div>
         </div>
       </div>
@@ -115,7 +112,7 @@ import api from "@/services/api";
 export default {
   data() {
     return {
-      packId: this.$route.query.packId || "",
+      bmsId: this.$route.query.bmsId || "",
       users: [],
       selectedUserId: this.$route.query.ownerId || "",
       loading: false,
@@ -128,6 +125,11 @@ export default {
     },
   },
   async created() {
+    if (!this.bmsId) {
+      this.error =
+        "bmsId tidak ditemukan di URL — kembali ke halaman Assign BMS";
+      return;
+    }
     try {
       const { data } = await api.get("/admin/users");
       this.users = data;
@@ -146,7 +148,7 @@ export default {
         });
         this.$router.push("/admin/assign-pack");
       } catch (err) {
-        this.error = err.response?.data?.error || "Gagal assign pack";
+        this.error = err.response?.data?.error || "Gagal assign BMS";
       } finally {
         this.loading = false;
       }

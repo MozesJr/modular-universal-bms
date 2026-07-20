@@ -1,16 +1,15 @@
 /**
- * services/mqttService.js — updated untuk skema baru
+ * services/mqttService.js — updated untuk skema BMS -> Pack -> Cell (dinamis)
  *
- * Perubahan dari skema lama:
- * - Payload baru mendukung field: state, pack_voltage, pack_current,
- *   pack_soc, pack_soh, pack_temp (dari bms_log)
- * - CellReading menyimpan pack_metrics jika dikirim ESP32
- * - Alert juga digenerate jika state === 'fault'
+ * Topic pattern dari firmware ESP32:
+ *   bms/{bms_id}/pack/{pack_id}/cell/{cell_id}
+ *   contoh: bms/BMS_1/pack/PACK_1/cell/3
  *
- * Topic pattern: bms/{pack_id}/cell/{cell_id}
+ * Payload:
+ *   { "voltage": 3.15, "state": "discharging" }
+ *   (field opsional: current, temperature, soc, soh, pack_voltage, dst — lihat CellReading)
  */
 "use strict";
-
 const mqtt = require("mqtt");
 const CellReading = require("../models/CellReading");
 const Pack = require("../models/Pack");
@@ -21,17 +20,14 @@ const cellStateCache = new Map();
 
 async function getPackConfig(packId) {
   if (packConfigCache.has(packId)) return packConfigCache.get(packId);
-  const pack = await BatteryPack.findOne({ pack_id: packId }).lean();
+  const pack = await Pack.findOne({ pack_id: packId }).lean();
   if (pack) packConfigCache.set(packId, pack);
   return pack;
 }
 
 function getAlertTypes(metrics, state, packConfig) {
   const types = [];
-
-  // Alert dari state enum (cl_state / bmslog_state)
   if (state === "fault") types.push("fault");
-
   if (!packConfig) return types;
   const { voltage, current, temperature } = metrics;
   if (voltage > packConfig.max_voltage) types.push("overcharge");
@@ -40,7 +36,6 @@ function getAlertTypes(metrics, state, packConfig) {
     types.push("thermal_runaway");
   if (current !== null && Math.abs(current) > packConfig.max_current_amps)
     types.push("over_current");
-
   return types;
 }
 
@@ -56,7 +51,8 @@ function initMQTT(io) {
 
   client.on("connect", () => {
     console.log(`✅ MQTT connected to ${brokerUrl}`);
-    const topic = `${topicPrefix}/+/cell/+`;
+    // 6 level: bms/{bmsId}/pack/{packId}/cell/{cellId}
+    const topic = `${topicPrefix}/+/pack/+/cell/+`;
     client.subscribe(topic, { qos: 1 }, (err) => {
       if (err) console.error("❌ MQTT subscribe error:", err);
       else console.log(`📡 Subscribed: ${topic}`);
@@ -65,18 +61,20 @@ function initMQTT(io) {
 
   client.on("message", async (topic, rawPayload) => {
     try {
-      // Parse topic: bms/PACK_001/cell/3
+      // Parse topic: bms/BMS_1/pack/PACK_1/cell/3
       const parts = topic.split("/");
-      const pack_id = parts[1];
-      const cell_id = parseInt(parts[3], 10);
-      if (!pack_id || isNaN(cell_id)) {
+      const bms_id = parts[1];
+      const pack_id = parts[3];
+      const cell_id = parseInt(parts[5], 10);
+
+      if (!bms_id || !pack_id || isNaN(cell_id)) {
         console.warn("⚠️  Malformed MQTT topic:", topic);
         return;
       }
 
       const payload = JSON.parse(rawPayload.toString());
 
-      // ── Cell-level metrics (cl_* fields) ──────────────────
+      // ── Cell-level metrics ────────────────────────────────
       const metrics = {
         voltage: parseFloat(payload.voltage) || 0,
         current: parseFloat(payload.current) || 0,
@@ -86,7 +84,7 @@ function initMQTT(io) {
         soh: payload.soh != null ? parseFloat(payload.soh) : null,
       };
 
-      // ── Pack-level metrics (bmslog_* fields) — opsional ───
+      // ── Pack-level metrics (opsional, kalau firmware kirim) ─
       const pack_metrics = {
         voltage:
           payload.pack_voltage != null
@@ -102,7 +100,6 @@ function initMQTT(io) {
         soh: payload.pack_soh != null ? parseFloat(payload.pack_soh) : null,
       };
 
-      // ── State (cl_state enum) ──────────────────────────────
       const state = payload.state || "normal";
 
       // ── SoC via Coulomb Counting jika tidak dikirim ────────
@@ -132,7 +129,7 @@ function initMQTT(io) {
       // ── Alert evaluation ───────────────────────────────────
       const alertTypes = getAlertTypes(metrics, state, packConfig);
 
-      // ── Persist to MongoDB ─────────────────────────────────
+      // ── Persist ke MongoDB ─────────────────────────────────
       const reading = await CellReading.create({
         timestamp: now,
         pack_id,
@@ -141,18 +138,18 @@ function initMQTT(io) {
         pack_metrics,
         state,
         alerts: alertTypes,
-        raw: payload,
+        raw: { ...payload, bms_id }, // simpan bms_id di raw buat referensi/debug
       });
 
-      // ── Update BatteryPack state ───────────────────────────
-      // Update state pack jika berubah (throttle: hanya dari cell_id=1)
+      // ── Update Pack.state kalau berubah (throttle: dari cell_id=1) ─
       if (cell_id === 1 && packConfig && packConfig.state !== state) {
-        await BatteryPack.updateOne({ pack_id }, { state });
+        await Pack.updateOne({ pack_id }, { state });
         invalidatePackCache(pack_id);
       }
 
       // ── Emit real-time ke frontend ─────────────────────────
       const event = {
+        bms_id,
         pack_id,
         cell_id,
         timestamp: reading.timestamp,
@@ -166,7 +163,7 @@ function initMQTT(io) {
       if (alertTypes.length) {
         io.emit("cell:alert", event);
         console.warn(
-          `🚨 ALERT — Pack: ${pack_id}, Cell: ${cell_id}`,
+          `🚨 ALERT — BMS: ${bms_id}, Pack: ${pack_id}, Cell: ${cell_id}`,
           alertTypes,
         );
         for (const type of alertTypes) {

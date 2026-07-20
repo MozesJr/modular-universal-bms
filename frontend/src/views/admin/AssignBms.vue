@@ -10,9 +10,9 @@
         >
           <div class="flex justify-between items-center">
             <div>
-              <h6 class="text-blueGray-700 text-xl font-bold">Assign Pack</h6>
+              <h6 class="text-blueGray-700 text-xl font-bold">Assign BMS</h6>
               <p class="text-blueGray-400 text-sm mt-1">
-                Kelola kepemilikan dan verifikasi BMS pack
+                Kelola kepemilikan dan verifikasi BMS device
               </p>
             </div>
           </div>
@@ -33,7 +33,7 @@
             <option value="suspended">Suspended</option>
           </select>
           <span class="text-sm text-blueGray-400">
-            {{ filteredPacks.length }} pack ditemukan
+            {{ filteredBms.length }} BMS ditemukan
           </span>
         </div>
 
@@ -45,7 +45,7 @@
                 <th
                   class="px-6 py-3 text-left text-xs font-semibold text-blueGray-500 uppercase border-b"
                 >
-                  Pack
+                  BMS
                 </th>
                 <th
                   class="px-6 py-3 text-left text-xs font-semibold text-blueGray-500 uppercase border-b"
@@ -60,7 +60,7 @@
                 <th
                   class="px-6 py-3 text-left text-xs font-semibold text-blueGray-500 uppercase border-b"
                 >
-                  Chemistry
+                  Model
                 </th>
                 <th
                   class="px-6 py-3 text-left text-xs font-semibold text-blueGray-500 uppercase border-b"
@@ -75,33 +75,33 @@
                   <i class="fas fa-spinner fa-spin mr-2"></i> Memuat...
                 </td>
               </tr>
-              <tr v-else-if="filteredPacks.length === 0">
+              <tr v-else-if="filteredBms.length === 0">
                 <td colspan="5" class="text-center py-8 text-blueGray-400">
-                  Tidak ada pack dengan filter ini
+                  Tidak ada BMS dengan filter ini
                 </td>
               </tr>
               <tr
-                v-for="pack in filteredPacks"
-                :key="pack._id"
+                v-for="bms in filteredBms"
+                :key="bms._id"
                 class="border-b hover:bg-blueGray-50"
               >
-                <!-- Pack info -->
+                <!-- BMS info -->
                 <td class="px-6 py-4">
                   <div class="font-semibold text-blueGray-700 text-sm">
-                    {{ pack.pack_id }}
+                    {{ bms.bms_id }}
                   </div>
                   <div class="text-xs text-blueGray-400">
-                    {{ pack.name || "Unnamed" }} · {{ pack.cell_count }} sel
+                    {{ bms.name || "Unnamed BMS" }}
                   </div>
                 </td>
 
                 <!-- Owner -->
                 <td class="px-6 py-4">
-                  <div v-if="pack.owner" class="text-sm text-blueGray-700">
+                  <div v-if="bms.owner" class="text-sm text-blueGray-700">
                     <i class="fas fa-user mr-1 text-blueGray-300"></i>
-                    {{ pack.owner.username }}
+                    {{ bms.owner.username }}
                     <div class="text-xs text-blueGray-400">
-                      {{ pack.owner.email }}
+                      {{ bms.owner.email }}
                     </div>
                   </div>
                   <span v-else class="text-xs text-blueGray-400 italic"
@@ -113,30 +113,30 @@
                 <td class="px-6 py-4">
                   <span
                     class="text-xs font-bold px-2 py-1 rounded"
-                    :class="statusClass(pack.status)"
+                    :class="statusClass(bms.status)"
                   >
-                    {{ statusLabel(pack.status) }}
+                    {{ statusLabel(bms.status) }}
                   </span>
                 </td>
 
-                <!-- Chemistry -->
+                <!-- Model -->
                 <td class="px-6 py-4 text-sm text-blueGray-600">
-                  {{ pack.chemistry || "-" }}
+                  {{ bms.bms_model_name || "-" }}
                 </td>
 
                 <!-- Actions -->
                 <td class="px-6 py-4">
                   <div class="flex gap-2 flex-wrap">
                     <!-- Approve/Reject untuk pending -->
-                    <template v-if="pack.status === 'pending_verification'">
+                    <template v-if="bms.status === 'pending_verification'">
                       <button
-                        @click="verify(pack, 'approve')"
+                        @click="verify(bms, 'approve')"
                         class="text-xs bg-emerald-500 hover:bg-emerald-600 text-white px-2 py-1 rounded"
                       >
                         <i class="fas fa-check mr-1"></i> Approve
                       </button>
                       <button
-                        @click="verify(pack, 'reject')"
+                        @click="verify(bms, 'reject')"
                         class="text-xs bg-red-400 hover:bg-red-600 text-white px-2 py-1 rounded"
                       >
                         <i class="fas fa-times mr-1"></i> Reject
@@ -145,7 +145,7 @@
 
                     <!-- Assign ke user lain -->
                     <button
-                      @click="goAssign(pack)"
+                      @click="goAssign(bms)"
                       class="text-xs bg-blueGray-600 hover:bg-blueGray-800 text-white px-2 py-1 rounded"
                     >
                       <i class="fas fa-exchange-alt mr-1"></i> Assign
@@ -153,10 +153,11 @@
 
                     <!-- Suspend/Unsuspend -->
                     <button
-                      @click="toggleSuspend(pack)"
+                      v-if="['active', 'suspended'].includes(bms.status)"
+                      @click="toggleSuspend(bms)"
                       class="text-xs px-2 py-1 rounded"
                       :class="
-                        pack.status === 'suspended'
+                        bms.status === 'suspended'
                           ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
                           : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
                       "
@@ -164,12 +165,10 @@
                       <i
                         class="fas mr-1"
                         :class="
-                          pack.status === 'suspended' ? 'fa-play' : 'fa-pause'
+                          bms.status === 'suspended' ? 'fa-play' : 'fa-pause'
                         "
                       ></i>
-                      {{
-                        pack.status === "suspended" ? "Unsuspend" : "Suspend"
-                      }}
+                      {{ bms.status === "suspended" ? "Unsuspend" : "Suspend" }}
                     </button>
                   </div>
                 </td>
@@ -188,27 +187,26 @@ import api from "@/services/api";
 export default {
   data() {
     return {
-      packs: [],
+      bmsList: [],
       loading: false,
       filter: "all",
     };
   },
   computed: {
-    filteredPacks() {
-      if (this.filter === "all") return this.packs;
-      return this.packs.filter((p) => p.status === this.filter);
+    filteredBms() {
+      if (this.filter === "all") return this.bmsList;
+      return this.bmsList.filter((b) => b.status === this.filter);
     },
   },
   async created() {
-    await this.fetchPacks();
+    await this.fetchBmsList();
   },
   methods: {
-    async fetchPacks() {
-      // rename jadi fetchBms()
+    async fetchBmsList() {
       this.loading = true;
       try {
-        const { data } = await api.get("/bms"); // ganti dari /packs
-        this.packs = data; // bisa tetap nama variabel `packs` internal atau rename `bmsList`
+        const { data } = await api.get("/bms");
+        this.bmsList = data;
       } catch (err) {
         console.error(err);
       } finally {
@@ -238,51 +236,47 @@ export default {
       );
     },
 
-    async verify(pack, decision) {
+    async verify(bms, decision) {
       const label = decision === "approve" ? "approve" : "reject";
-      if (!confirm(`${label} pack ${pack.pack_id}?`)) return;
+      if (!confirm(`${label} BMS ${bms.bms_id}?`)) return;
       try {
-        const { data } = await api.patch(`/packs/${pack.pack_id}/verify`, {
+        const { data } = await api.patch(`/bms/${bms.bms_id}/verify`, {
           decision,
         });
-        const idx = this.packs.findIndex((p) => p._id === pack._id);
+        const idx = this.bmsList.findIndex((b) => b._id === bms._id);
         if (idx !== -1)
-          this.packs.splice(idx, 1, {
-            ...this.packs[idx],
-            status: data.pack.status,
+          this.bmsList.splice(idx, 1, {
+            ...this.bmsList[idx],
+            status: data.bms.status,
           });
       } catch (err) {
         alert(err.response?.data?.error || "Gagal verifikasi");
       }
     },
 
-    async toggleSuspend(pack) {
-      const isSuspended = pack.status === "suspended";
+    async toggleSuspend(bms) {
+      const isSuspended = bms.status === "suspended";
       if (
-        !confirm(
-          `${isSuspended ? "Unsuspend" : "Suspend"} pack ${pack.pack_id}?`,
-        )
+        !confirm(`${isSuspended ? "Unsuspend" : "Suspend"} BMS ${bms.bms_id}?`)
       )
         return;
       try {
-        // reuse endpoint assign untuk update status
-        const newStatus = isSuspended ? "active" : "suspended";
-        await api.patch(`/packs/${pack.pack_id}/assign`, {
-          userId: pack.owner?._id,
-          status: newStatus,
-        });
-        const idx = this.packs.findIndex((p) => p._id === pack._id);
+        const { data } = await api.patch(`/bms/${bms.bms_id}/suspend`);
+        const idx = this.bmsList.findIndex((b) => b._id === bms._id);
         if (idx !== -1)
-          this.packs.splice(idx, 1, { ...this.packs[idx], status: newStatus });
+          this.bmsList.splice(idx, 1, {
+            ...this.bmsList[idx],
+            status: data.bms.status,
+          });
       } catch (err) {
         alert(err.response?.data?.error || "Gagal update status");
       }
     },
 
-    goAssign(pack) {
+    goAssign(bms) {
       this.$router.push(
-        `/admin/assign-pack-form?packId=${pack.pack_id}&ownerId=${
-          pack.owner?._id || ""
+        `/admin/assign-pack-form?bmsId=${bms.bms_id}&ownerId=${
+          bms.owner?._id || ""
         }`,
       );
     },

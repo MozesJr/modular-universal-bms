@@ -1,0 +1,334 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+#include <OneWire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <DallasTemperature.h>
+#include <string>
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+#define ONE_WIRE_BUS 4
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+
+Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+// ── Konfigurasi WiFi ─────────────────────────────────────────
+const char* WIFI_SSID     = "Queenf4";
+const char* WIFI_PASSWORD = "QH12342210";
+
+// ── Konfigurasi MQTT Broker ──────────────────────────────────
+const char* MQTT_HOST = "148.230.97.68";
+const int   MQTT_PORT = 1885;
+const char* MQTT_CLIENT_ID = "esp32-bms-pack001-cell34";
+
+// ── Identitas Pack & Cell node ini ───────────────────────────
+const char* PACK_ID = "PACK_001";
+const int   CELL_ID_1 = 3;
+const int   CELL_ID_2 = 4;
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+unsigned long lastPublish = 0;
+const unsigned long PUBLISH_INTERVAL = 2000;
+
+// ── Animasi state ────────────────────────────────────────────
+unsigned long lastFrameTime = 0;
+const unsigned long FRAME_INTERVAL = 250;
+int animFrame = 0;
+
+unsigned long lastModeSwitch = 0;
+const unsigned long MODE_INTERVAL = 6000;
+int animMode = 0;
+// 0=solo dance, 1=berantem, 2=rame-rame, 3=mata,
+// 4=flexing, 5=heart beat, 6=DVD bounce
+const int TOTAL_MODES = 7;
+
+// ── DVD bounce state (posisi & arah gerak) ─────────────────────
+float dvdX = 20, dvdY = 20;
+float dvdVX = 1.6, dvdVY = 1.2;
+
+float temp1C = 0;
+float temp2C = 0;
+
+// ── WiFi connect ──────────────────────────────────────────────
+void connectWiFi() {
+  Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
+}
+
+void connectMQTT() {
+  while (!mqttClient.connected()) {
+    Serial.print("Connecting to MQTT broker...");
+    if (mqttClient.connect(MQTT_CLIENT_ID)) {
+      Serial.println(" connected!");
+    } else {
+      Serial.printf(" failed, rc=%d, retry in 3s\n", mqttClient.state());
+      delay(3000);
+    }
+  }
+}
+
+const char* determineState(float temperature) {
+  if (temperature > 55.0) return "fault";
+  return "discharging";
+}
+
+void publishCell(int cellId, float temperature) {
+  const char* state = determineState(temperature);
+  JsonDocument doc;
+  doc["voltage"] = 0;
+  doc["temperature"] = round(temperature * 10) / 10.0;
+  doc["state"] = state;
+
+  char payload[256];
+  serializeJson(doc, payload);
+
+  char topic[64];
+  snprintf(topic, sizeof(topic), "bms/%s/cell/%d", PACK_ID, cellId);
+
+  mqttClient.publish(topic, payload);
+  Serial.printf("[%s] T:%.1f state:%s -> %s\n", topic, temperature, state, payload);
+}
+
+float sendTemperature1() {
+  sensors.requestTemperatures();
+  float t = sensors.getTempCByIndex(0);
+  Serial.print("Temp 1 C: "); Serial.println(t);
+  return t;
+}
+
+float sendTemperature2() {
+  float t = sensors.getTempCByIndex(1);
+  Serial.print("Temp 2 C: "); Serial.println(t);
+  return t;
+}
+
+// ── Gambar garis "tebal" biar kesan berotot ────────────────────
+void thickLine(int x0, int y0, int x1, int y1, int thickness) {
+  oled.drawLine(x0, y0, x1, y1, WHITE);
+  for (int i = 1; i <= thickness; i++) {
+    oled.drawLine(x0 + i, y0, x1 + i, y1, WHITE);
+    oled.drawLine(x0, y0 + i, x1, y1 + i, WHITE);
+  }
+}
+
+// ── Stick figure BESAR & berotot ───────────────────────────────
+void drawBigFigure(int x, int y,
+                    int lArmDx, int lArmDy, int rArmDx, int rArmDy,
+                    int lLegDx, int lLegDy, int rLegDx, int rLegDy) {
+  oled.fillCircle(x, y - 10, 6, WHITE);
+  oled.fillRoundRect(x - 7, y - 3, 14, 20, 3, WHITE);
+  thickLine(x - 6, y + 2, x - 6 + lArmDx, y + 2 + lArmDy, 3);
+  thickLine(x + 6, y + 2, x + 6 + rArmDx, y + 2 + rArmDy, 3);
+  oled.fillCircle(x - 6 + lArmDx, y + 2 + lArmDy, 2, WHITE);
+  oled.fillCircle(x + 6 + rArmDx, y + 2 + rArmDy, 2, WHITE);
+  thickLine(x - 4, y + 17, x - 4 + lLegDx, y + 17 + lLegDy, 3);
+  thickLine(x + 4, y + 17, x + 4 + rLegDx, y + 17 + rLegDy, 3);
+}
+
+void drawSoloDanceBig(int frame) {
+  int x = 64, y = 26;
+  switch (frame % 4) {
+    case 0: drawBigFigure(x, y, -14,-12, 14,-12, -8,16, 8,16); break;
+    case 1: drawBigFigure(x, y, -16,2, 16,2, -10,14, 10,14); break;
+    case 2: drawBigFigure(x, y, -14,-8, 14,6, -6,16, 12,12); break;
+    case 3: drawBigFigure(x, y, -14,6, 14,-8, 12,12, -6,16); break;
+  }
+}
+
+void drawFightingBig(int frame) {
+  int xL = 32, xR = 96, y = 30;
+  bool leftPunch = (frame % 2 == 0);
+  if (leftPunch) {
+    drawBigFigure(xL, y, -10,8, 34,0, -8,16, 8,16);
+    drawBigFigure(xR, y, -34,0, 10,-10, -8,16, 8,16);
+  } else {
+    drawBigFigure(xL, y, -10,-10, 34,0, -8,16, 8,16);
+    drawBigFigure(xR, y, -34,0, 10,8, -8,16, 8,16);
+  }
+  if (frame % 4 == 1 || frame % 4 == 3) {
+    oled.setTextSize(1);
+    oled.setCursor(52, 4);
+    oled.print("POW!");
+  }
+}
+
+void drawGroupDanceBig(int frame) {
+  int y = 24;
+  int positions[3] = {22, 64, 106};
+  for (int i = 0; i < 3; i++) {
+    int x = positions[i];
+    int f = (frame + i) % 4;
+    switch (f) {
+      case 0: drawBigFigure(x, y, -10,-8, 10,-8, -6,12, 6,12); break;
+      case 1: drawBigFigure(x, y, -11,2, 11,2, -8,10, 8,10); break;
+      case 2: drawBigFigure(x, y, -10,-6, 10,6, -4,12, 8,10); break;
+      case 3: drawBigFigure(x, y, -10,6, 10,-6, 8,10, -4,12); break;
+    }
+  }
+}
+
+void drawEyes(int frame) {
+  int cx1 = 40, cx2 = 88, cy = 32;
+  int w = 26, h = 26;
+  int blinkCycle = frame % 16;
+  int eyeH = h;
+  int offsetX1 = 0, offsetX2 = 0;
+
+  if (blinkCycle == 6) eyeH = h * 0.6;
+  else if (blinkCycle == 7) eyeH = 2;
+  else if (blinkCycle == 8) eyeH = h * 0.6;
+
+  if (blinkCycle >= 10 && blinkCycle <= 12) { offsetX1 = -4; offsetX2 = -4; }
+
+  oled.fillRoundRect(cx1 - w/2, cy - eyeH/2, w, eyeH, 6, WHITE);
+  oled.fillRoundRect(cx2 - w/2 + offsetX2, cy - eyeH/2, w, eyeH, 6, WHITE);
+
+  if (eyeH > 8) {
+    oled.fillCircle(cx1 + offsetX1, cy, 4, BLACK);
+    oled.fillCircle(cx2 + offsetX2, cy, 4, BLACK);
+  }
+}
+
+// ── MODE 4: flexing bicep (nge-gym pamer otot) ──────────────────
+void drawFlexing(int frame) {
+  int x = 64, y = 30;
+  oled.fillCircle(x, y - 10, 6, WHITE);
+  oled.fillRoundRect(x - 7, y - 3, 14, 20, 3, WHITE);
+
+  bool bigFlex = (frame % 2 == 0);
+  int bicepSize = bigFlex ? 8 : 5;
+
+  // lengan kiri: siku ditekuk ke atas, bisep membesar-mengecil
+  thickLine(x - 6, y + 2, x - 14, y - 2, 3);       // lengan atas
+  thickLine(x - 14, y - 2, x - 10, y - 10, 3);     // lengan bawah ke atas
+  oled.fillCircle(x - 14, y - 2, bicepSize, WHITE); // gembungan bisep
+
+  // lengan kanan sama
+  thickLine(x + 6, y + 2, x + 14, y - 2, 3);
+  thickLine(x + 14, y - 2, x + 10, y - 10, 3);
+  oled.fillCircle(x + 14, y - 2, bicepSize, WHITE);
+
+  // kaki berdiri tegap
+  thickLine(x - 4, y + 17, x - 5, y + 30, 3);
+  thickLine(x + 4, y + 17, x + 5, y + 30, 3);
+
+  if (bigFlex) {
+    oled.setTextSize(1);
+    oled.setCursor(40, 4);
+    oled.print("GRR!");
+  }
+}
+
+// ── MODE 5: heart beat (hati berdetak) ──────────────────────────
+void drawHeart(int cx, int cy, int size) {
+  oled.fillCircle(cx - size/2, cy, size/2, WHITE);
+  oled.fillCircle(cx + size/2, cy, size/2, WHITE);
+  oled.fillTriangle(cx - size, cy, cx + size, cy, cx, cy + size, WHITE);
+}
+
+void drawHeartBeat(int frame) {
+  int beat = frame % 6;
+  int size;
+  switch (beat) {
+    case 0: size = 14; break;
+    case 1: size = 20; break;  // detak besar
+    case 2: size = 14; break;
+    case 3: size = 12; break;
+    case 4: size = 18; break;  // detak kedua (dug-dug)
+    default: size = 12; break;
+  }
+  drawHeart(64, 30, size);
+}
+
+// ── MODE 6: DVD bounce (teks "BMS" mantul kayak screensaver) ───
+void drawDvdBounce() {
+  const char* label = "BMS";
+  int textW = 18; // perkiraan lebar teks (textSize 1, 3 karakter)
+  int textH = 8;
+
+  dvdX += dvdVX;
+  dvdY += dvdVY;
+
+  if (dvdX <= 0 || dvdX >= SCREEN_WIDTH - textW) dvdVX = -dvdVX;
+  if (dvdY <= 0 || dvdY >= SCREEN_HEIGHT - textH) dvdVY = -dvdVY;
+
+  oled.setTextSize(2);
+  oled.setCursor((int)dvdX, (int)dvdY);
+  oled.print(label);
+}
+
+void setup() {
+  Serial.begin(115200);
+  sensors.begin();
+
+  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    while (true);
+  }
+
+  connectWiFi();
+  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+}
+
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) connectWiFi();
+  if (!mqttClient.connected()) connectMQTT();
+  mqttClient.loop();
+
+  temp1C = sendTemperature1();
+  delay(120);
+  temp2C = sendTemperature2();
+
+  unsigned long now = millis();
+
+  if (now - lastFrameTime >= FRAME_INTERVAL) {
+    lastFrameTime = now;
+    animFrame++;
+  }
+
+  if (now - lastModeSwitch >= MODE_INTERVAL) {
+    lastModeSwitch = now;
+    animMode = (animMode + 1) % TOTAL_MODES;
+  }
+
+  oled.clearDisplay();
+  oled.setTextColor(WHITE);
+
+  // ── Tampilan suhu di-nonaktifkan sementara, biar fokus animasi lucu ──
+  // oled.setTextSize(1);
+  // oled.setCursor(20, 20);
+  // oled.print("T1: "); oled.print(temp1C); oled.println(" C");
+  // oled.setCursor(20, 34);
+  // oled.print("T2: "); oled.print(temp2C); oled.println(" C");
+
+  switch (animMode) {
+    case 0: drawSoloDanceBig(animFrame); break;
+    case 1: drawFightingBig(animFrame); break;
+    case 2: drawGroupDanceBig(animFrame); break;
+    case 3: drawEyes(animFrame); break;
+    case 4: drawFlexing(animFrame); break;
+    case 5: drawHeartBeat(animFrame); break;
+    case 6: drawDvdBounce(); break;
+  }
+
+  oled.display();
+
+  if (now - lastPublish >= PUBLISH_INTERVAL) {
+    lastPublish = now;
+    publishCell(CELL_ID_1, temp1C);
+    publishCell(CELL_ID_2, temp2C);
+  }
+
+  delay(120);
+}
