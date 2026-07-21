@@ -1,0 +1,82 @@
+# =============================================================
+# Modular Universal BMS — Docker Compose (VPS Production)
+# MongoDB  : pakai master_mongodb (external)
+# Dashboard: :8282  | Backend: :3100  | MQTT: :1885
+# =============================================================
+
+services:
+
+  # ─── 1. Mosquitto MQTT Broker ─────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: bms_mosquitto
+    restart: unless-stopped
+    ports:
+      - "1885:1883"   # Host 1885 → Container 1883 (ESP32 connect ke port 1885)
+      - "9002:9001"   # Host 9002 → Container 9001 (WebSocket, opsional)
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    networks:
+      - bms_network
+    healthcheck:
+      test: ["CMD", "mosquitto_pub", "-h", "localhost", "-t", "health", "-m", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── 2. Backend — Node.js + Express ──────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bms_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: 3000
+      # Connect ke master_mongodb via container name (shared network)
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@master_mongodb:27017/${MONGO_DB_NAME}?authSource=admin
+      MQTT_BROKER_URL: mqtt://mosquitto:1883
+      MQTT_TOPIC_PREFIX: ${MQTT_TOPIC_PREFIX:-bms}
+      JWT_SECRET: ${JWT_SECRET}
+    ports:
+      - "3100:3000"   # Host 3100 → Container 3000
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    networks:
+      - bms_network
+      - master_db_net   # Join ke network master DB agar bisa reach master_mongodb
+
+  # ─── 3. Frontend — Vue.js via Nginx ──────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: bms_frontend
+    restart: unless-stopped
+    ports:
+      - "8282:80"   # Host 8282 → Container 80 (Nginx)
+    depends_on:
+      - backend
+    networks:
+      - bms_network
+
+# ─── Volumes ──────────────────────────────────────────────
+volumes:
+  mosquitto_data:
+    driver: local
+  mosquitto_log:
+    driver: local
+
+# ─── Networks ─────────────────────────────────────────────
+networks:
+  bms_network:
+    driver: bridge
+
+  # Join ke network master DB yang sudah ada (external)
+  master_db_net:
+    external: true
+    name: master_db_net
