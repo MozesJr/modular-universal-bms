@@ -5,18 +5,25 @@
  *   bms/{bms_id}/pack/{pack_id}/cell/{cell_id}
  *   contoh: bms/BMS_1/pack/PACK_1/cell/3
  *
- * Payload:
- *   { "voltage": 3.15, "state": "discharging" }
- *   (field opsional: current, temperature, soc, soh, pack_voltage, dst — lihat CellReading)
+ * SoC estimation: OCV-based (voltage), lihat bmsAlgorithm.js — rig belum
+ * punya sensor arus jadi Coulomb counting tidak dipakai dulu.
+ *
+ * Imbalance tracking: tiap pesan masuk, hitung ulang delta tegangan
+ * (max-min) antar SEMUA cell terakhir di pack yang sama. Kalau melebihi
+ * Pack.max_imbalance_mv, alert "imbalance" dibuat SEKALI saat transisi
+ * dari balanced->imbalanced (dedup pakai packImbalanceState), bukan
+ * berulang tiap pesan selama masih imbalance.
  */
 "use strict";
 const mqtt = require("mqtt");
 const CellReading = require("../models/CellReading");
 const Pack = require("../models/Pack");
 const AlertLog = require("../models/AlertLog");
+const { estimateSocFromVoltage } = require("./bmsAlgorithm");
 
 const packConfigCache = new Map();
 const cellStateCache = new Map();
+const packImbalanceState = new Map(); // pack_id -> boolean (sedang imbalanced?)
 
 async function getPackConfig(packId) {
   if (packConfigCache.has(packId)) return packConfigCache.get(packId);
@@ -39,6 +46,29 @@ function getAlertTypes(metrics, state, packConfig) {
   return types;
 }
 
+/**
+ * Hitung delta tegangan pack (max-min antar cell terakhir), pakai reading
+ * TERBARU per cell_id (bukan cuma reading yang baru masuk).
+ */
+async function computePackImbalance(packId, packConfig) {
+  const latestPerCell = await CellReading.aggregate([
+    { $match: { pack_id: packId } },
+    { $sort: { timestamp: -1 } },
+    { $group: { _id: "$cell_id", voltage: { $first: "$metrics.voltage" } } },
+  ]);
+
+  if (latestPerCell.length < 2) return { deltaMv: 0, isImbalanced: false };
+
+  const voltages = latestPerCell.map((c) => c.voltage);
+  const deltaMv = Math.round(
+    (Math.max(...voltages) - Math.min(...voltages)) * 1000,
+  );
+  const threshold = (packConfig && packConfig.max_imbalance_mv) || 100;
+  const isImbalanced = deltaMv > threshold;
+
+  return { deltaMv, isImbalanced };
+}
+
 function initMQTT(io) {
   const brokerUrl = process.env.MQTT_BROKER_URL || "mqtt://mosquitto:1883";
   const topicPrefix = process.env.MQTT_TOPIC_PREFIX || "bms";
@@ -51,7 +81,6 @@ function initMQTT(io) {
 
   client.on("connect", () => {
     console.log(`✅ MQTT connected to ${brokerUrl}`);
-    // 6 level: bms/{bmsId}/pack/{packId}/cell/{cellId}
     const topic = `${topicPrefix}/+/pack/+/cell/+`;
     client.subscribe(topic, { qos: 1 }, (err) => {
       if (err) console.error("❌ MQTT subscribe error:", err);
@@ -61,7 +90,6 @@ function initMQTT(io) {
 
   client.on("message", async (topic, rawPayload) => {
     try {
-      // Parse topic: bms/BMS_1/pack/PACK_1/cell/3
       const parts = topic.split("/");
       const bms_id = parts[1];
       const pack_id = parts[3];
@@ -74,7 +102,6 @@ function initMQTT(io) {
 
       const payload = JSON.parse(rawPayload.toString());
 
-      // ── Cell-level metrics ────────────────────────────────
       const metrics = {
         voltage: parseFloat(payload.voltage) || 0,
         current: parseFloat(payload.current) || 0,
@@ -84,7 +111,6 @@ function initMQTT(io) {
         soh: payload.soh != null ? parseFloat(payload.soh) : null,
       };
 
-      // ── Pack-level metrics (opsional, kalau firmware kirim) ─
       const pack_metrics = {
         voltage:
           payload.pack_voltage != null
@@ -102,34 +128,27 @@ function initMQTT(io) {
 
       const state = payload.state || "normal";
 
-      // ── SoC via Coulomb Counting jika tidak dikirim ────────
       const packConfig = await getPackConfig(pack_id);
       const cacheKey = `${pack_id}:${cell_id}`;
       const now = new Date();
 
-      if (
-        metrics.soc == null &&
-        cellStateCache.has(cacheKey) &&
-        typeof metrics.current === "number"
-      ) {
-        const { timestamp: prevTs, soc: prevSoc } =
-          cellStateCache.get(cacheKey);
-        const deltaSec = (now - prevTs) / 1000;
-        const { estimateSoc } = require("./bmsAlgorithm");
-        const capacityAh = (packConfig && packConfig.capacity_ah) || 100;
-        metrics.soc = estimateSoc(
-          prevSoc,
-          metrics.current,
-          deltaSec,
-          capacityAh,
+      // ── SoC: OCV-based (voltage) ────────────────────────────
+      if (metrics.soc == null) {
+        const chemistry = (packConfig && packConfig.chemistry) || "LiFePO4";
+        const minV = (packConfig && packConfig.min_voltage) ?? 2.5;
+        const maxV = (packConfig && packConfig.max_voltage) ?? 3.65;
+        metrics.soc = estimateSocFromVoltage(
+          metrics.voltage,
+          chemistry,
+          minV,
+          maxV,
         );
       }
       cellStateCache.set(cacheKey, { timestamp: now, soc: metrics.soc });
 
-      // ── Alert evaluation ───────────────────────────────────
       const alertTypes = getAlertTypes(metrics, state, packConfig);
 
-      // ── Persist ke MongoDB ─────────────────────────────────
+      // ── Persist reading ini dulu, biar ikut kehitung di query imbalance ─
       const reading = await CellReading.create({
         timestamp: now,
         pack_id,
@@ -138,14 +157,40 @@ function initMQTT(io) {
         pack_metrics,
         state,
         alerts: alertTypes,
-        raw: { ...payload, bms_id }, // simpan bms_id di raw buat referensi/debug
+        raw: { ...payload, bms_id },
       });
 
-      // ── Update Pack.state kalau berubah (throttle: dari cell_id=1) ─
-      if (cell_id === 1 && packConfig && packConfig.state !== state) {
-        await Pack.updateOne({ pack_id }, { state });
-        invalidatePackCache(pack_id);
+      // ── Imbalance tracking (pack-wide, pakai reading terbaru semua cell) ─
+      const { deltaMv, isImbalanced } = await computePackImbalance(
+        pack_id,
+        packConfig,
+      );
+      const wasImbalanced = packImbalanceState.get(pack_id) || false;
+
+      if (isImbalanced && !wasImbalanced) {
+        await AlertLog.create({
+          pack_id,
+          cell_id: 0, // 0 = alert level pack, bukan cell tertentu
+          type: "imbalance",
+          timestamp: now,
+        });
+        console.warn(
+          `🚨 ALERT — Pack ${pack_id} imbalance terdeteksi: ${deltaMv}mV (threshold ${(packConfig && packConfig.max_imbalance_mv) || 100}mV)`,
+        );
+      } else if (!isImbalanced && wasImbalanced) {
+        console.log(
+          `✅ Pack ${pack_id} kembali balanced (delta: ${deltaMv}mV)`,
+        );
       }
+      packImbalanceState.set(pack_id, isImbalanced);
+
+      // ── Update Pack: state (throttle cell_id=1) + voltage_delta_mv ────
+      const packUpdate = { voltage_delta_mv: deltaMv };
+      if (cell_id === 1 && packConfig && packConfig.state !== state) {
+        packUpdate.state = state;
+      }
+      await Pack.updateOne({ pack_id }, packUpdate);
+      if (packUpdate.state) invalidatePackCache(pack_id);
 
       // ── Emit real-time ke frontend ─────────────────────────
       const event = {
@@ -157,6 +202,8 @@ function initMQTT(io) {
         pack_metrics,
         state,
         alerts: alertTypes,
+        pack_voltage_delta_mv: deltaMv,
+        pack_imbalanced: isImbalanced,
       };
       io.emit("cell:update", event);
 

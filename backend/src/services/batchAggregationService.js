@@ -1,110 +1,99 @@
-/**
- * services/batchAggregationService.js
- *
- * Menjalankan agregasi periodik: ambil semua CellReading (raw, real-time)
- * dalam satu jendela waktu, hitung statistiknya per pack_id+cell_id,
- * simpan sebagai satu dokumen CellReadingBatch.
- *
- * Dipanggil berkala lewat setInterval dari server.js (default tiap 1 jam).
- * Data raw di CellReading TIDAK dihapus oleh service ini — retensi/pruning
- * raw data itu keputusan terpisah, atur sendiri kalau diperlukan (mis. TTL index).
- */
+// backend/src/services/bmsAlgorithm.js
+// Dua metode estimasi State-of-Charge (SoC):
+//
+// 1. estimateSoc()            — Coulomb counting, butuh sensor ARUS.
+//    Cocok kalau nanti rig sudah punya current sensor (shunt/ACS712/dll).
+//
+// 2. estimateSocFromVoltage() — OCV-based (Open Circuit Voltage lookup),
+//    cuma butuh tegangan sel. Ini yang dipakai sekarang karena rig belum
+//    punya sensor arus (current selalu 0 dari firmware).
+//
+// Catatan akurasi: OCV-based SoC paling akurat saat baterai RESTING
+// (nggak lagi charge/discharge aktif) — di bawah beban, tegangan terminal
+// sedikit menyimpang dari OCV asli (voltage sag/rise). Untuk monitoring
+// kasar/dashboard, ini sudah cukup; untuk BMS presisi tinggi, kombinasikan
+// dengan Coulomb counting begitu sensor arus tersedia.
+
 "use strict";
-const CellReading = require("../models/CellReading");
-const CellReadingBatch = require("../models/CellReadingBatch");
 
 /**
- * @param {number} windowMs - lebar jendela waktu batch dalam milidetik (default 1 jam)
+ * Coulomb counting SoC estimator.
+ * @param {number} prevSoc - SoC sebelumnya (%).
+ * @param {number} current - Arus terukur (A, positif = discharge).
+ * @param {number} deltaSec - Selisih waktu sejak pembacaan sebelumnya (detik).
+ * @param {number} capacityAh - Kapasitas nominal pack (Ah).
+ * @returns {number} SoC baru (%, 0-100).
  */
-async function runBatchAggregation(windowMs = 60 * 60 * 1000) {
-  const periodEnd = new Date();
-  const periodStart = new Date(periodEnd.getTime() - windowMs);
+function estimateSoc(prevSoc, current, deltaSec, capacityAh) {
+  if (capacityAh <= 0) return prevSoc;
+  const deltaHours = deltaSec / 3600;
+  const deltaSoc = ((current * deltaHours) / capacityAh) * 100;
+  let newSoc = prevSoc - deltaSoc;
+  if (newSoc > 100) newSoc = 100;
+  if (newSoc < 0) newSoc = 0;
+  return Math.round(newSoc * 10) / 10;
+}
 
-  const results = await CellReading.aggregate([
-    { $match: { timestamp: { $gte: periodStart, $lt: periodEnd } } },
-    {
-      $group: {
-        _id: { pack_id: "$pack_id", cell_id: "$cell_id" },
-        voltage_min: { $min: "$metrics.voltage" },
-        voltage_max: { $max: "$metrics.voltage" },
-        voltage_avg: { $avg: "$metrics.voltage" },
-        current_min: { $min: "$metrics.current" },
-        current_max: { $max: "$metrics.current" },
-        current_avg: { $avg: "$metrics.current" },
-        temperature_min: { $min: "$metrics.temperature" },
-        temperature_max: { $max: "$metrics.temperature" },
-        temperature_avg: { $avg: "$metrics.temperature" },
-        soc_last: { $last: "$metrics.soc" },
-        soh_last: { $last: "$metrics.soh" },
-        alert_count: {
-          $sum: { $cond: [{ $gt: [{ $size: "$alerts" }, 0] }, 1, 0] },
-        },
-        sample_count: { $sum: 1 },
-      },
-    },
-  ]);
+// ── OCV (Open Circuit Voltage) -> SoC lookup table ──────────────
+// Nilai per-sel LiFePO4 (V), pendekatan kurva discharge standar.
+// Kurva LiFePO4 relatif FLAT di tengah (banyak SoC di rentang voltage sempit),
+// makanya titik-titik di tengah lebih rapat.
+const LIFEPO4_OCV_TABLE = [
+  { soc: 100, v: 3.45 },
+  { soc: 90, v: 3.35 },
+  { soc: 80, v: 3.32 },
+  { soc: 70, v: 3.28 },
+  { soc: 60, v: 3.25 },
+  { soc: 50, v: 3.22 },
+  { soc: 40, v: 3.2 },
+  { soc: 30, v: 3.17 },
+  { soc: 20, v: 3.12 },
+  { soc: 10, v: 3.0 },
+  { soc: 0, v: 2.5 },
+];
 
-  if (results.length === 0) {
-    console.log(
-      `ℹ️  Batch aggregation: tidak ada data baru pada ${periodStart.toISOString()} - ${periodEnd.toISOString()}`,
-    );
-    return { inserted: 0, skipped: 0 };
-  }
+/**
+ * Interpolasi linear terhadap tabel OCV (harus terurut voltage menurun).
+ */
+function interpolateOcvTable(voltage, table) {
+  if (voltage >= table[0].v) return 100;
+  if (voltage <= table[table.length - 1].v) return 0;
 
-  let inserted = 0;
-  let skipped = 0;
-
-  for (const r of results) {
-    try {
-      await CellReadingBatch.create({
-        pack_id: r._id.pack_id,
-        cell_id: r._id.cell_id,
-        period_start: periodStart,
-        period_end: periodEnd,
-        voltage_min: r.voltage_min,
-        voltage_max: r.voltage_max,
-        voltage_avg: r.voltage_avg,
-        current_min: r.current_min,
-        current_max: r.current_max,
-        current_avg: r.current_avg,
-        temperature_min: r.temperature_min,
-        temperature_max: r.temperature_max,
-        temperature_avg: r.temperature_avg,
-        soc_last: r.soc_last,
-        soh_last: r.soh_last,
-        alert_count: r.alert_count,
-        sample_count: r.sample_count,
-      });
-      inserted++;
-    } catch (err) {
-      // Duplicate key (unique index pack_id+cell_id+period_start) -> sudah pernah di-batch, skip
-      if (err.code === 11000) {
-        skipped++;
-      } else {
-        console.error("❌ Batch aggregation error:", err.message);
-      }
+  for (let i = 0; i < table.length - 1; i++) {
+    const hi = table[i];
+    const lo = table[i + 1];
+    if (voltage <= hi.v && voltage >= lo.v) {
+      const ratio = (voltage - lo.v) / (hi.v - lo.v);
+      const soc = lo.soc + ratio * (hi.soc - lo.soc);
+      return Math.round(soc * 10) / 10;
     }
   }
-
-  console.log(
-    `✅ Batch aggregation selesai (${periodStart.toISOString()} - ${periodEnd.toISOString()}): ${inserted} dibuat, ${skipped} dilewati (duplikat)`,
-  );
-  return { inserted, skipped };
+  return 0;
 }
 
 /**
- * Jalankan aggregation berkala. Dipanggil sekali di server.js setelah DB connect.
- * @param {number} intervalMs - jarak antar-run (default 1 jam)
+ * Estimasi SoC dari tegangan sel (OCV-based). Tidak butuh sensor arus.
+ * @param {number} voltage - Tegangan sel saat ini (V).
+ * @param {string} chemistry - Chemistry pack (default "LiFePO4").
+ * @param {number} minVoltage - Batas bawah pack (fallback linear utk chemistry lain).
+ * @param {number} maxVoltage - Batas atas pack (fallback linear utk chemistry lain).
+ * @returns {number} SoC estimasi (%, 0-100).
  */
-function scheduleBatchAggregation(intervalMs = 60 * 60 * 1000) {
-  console.log(
-    `🕐 Batch aggregation dijadwalkan tiap ${intervalMs / 60000} menit`,
-  );
-  setInterval(() => {
-    runBatchAggregation(intervalMs).catch((err) =>
-      console.error("❌ Scheduled batch aggregation gagal:", err),
-    );
-  }, intervalMs);
+function estimateSocFromVoltage(
+  voltage,
+  chemistry = "LiFePO4",
+  minVoltage = 2.5,
+  maxVoltage = 3.65,
+) {
+  if (chemistry === "LiFePO4") {
+    return interpolateOcvTable(voltage, LIFEPO4_OCV_TABLE);
+  }
+  // Chemistry lain: belum ada tabel OCV spesifik, fallback linear
+  // sederhana antara min_voltage dan max_voltage pack. Kurang akurat
+  // (chemistry lain umumnya tidak linear), tapi lebih baik daripada 0%.
+  const clamped = Math.max(minVoltage, Math.min(maxVoltage, voltage));
+  const pct = ((clamped - minVoltage) / (maxVoltage - minVoltage)) * 100;
+  return Math.round(pct * 10) / 10;
 }
 
-module.exports = { runBatchAggregation, scheduleBatchAggregation };
+module.exports = { estimateSoc, estimateSocFromVoltage };
