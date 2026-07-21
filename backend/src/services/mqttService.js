@@ -192,6 +192,14 @@ function initMQTT(io) {
       await Pack.updateOne({ pack_id }, packUpdate);
       if (packUpdate.state) invalidatePackCache(pack_id);
 
+      // ── Live alerts (buat widget real-time) BEDA dari alertTypes yang
+      // dipakai buat AlertLog di bawah — "imbalance" tampil terus selama
+      // kondisinya masih berlangsung, tapi cuma di-LOG sekali (di atas,
+      // saat transisi) supaya AlertLog nggak kebanjiran entry tiap 2 detik.
+      const liveAlerts = isImbalanced
+        ? [...alertTypes, "imbalance"]
+        : alertTypes;
+
       // ── Emit real-time ke frontend ─────────────────────────
       const event = {
         bms_id,
@@ -201,17 +209,17 @@ function initMQTT(io) {
         metrics,
         pack_metrics,
         state,
-        alerts: alertTypes,
+        alerts: liveAlerts,
         pack_voltage_delta_mv: deltaMv,
         pack_imbalanced: isImbalanced,
       };
       io.emit("cell:update", event);
 
-      if (alertTypes.length) {
+      if (alertTypes.length || (isImbalanced && !wasImbalanced)) {
         io.emit("cell:alert", event);
         console.warn(
           `🚨 ALERT — BMS: ${bms_id}, Pack: ${pack_id}, Cell: ${cell_id}`,
-          alertTypes,
+          liveAlerts,
         );
         for (const type of alertTypes) {
           await AlertLog.create({
