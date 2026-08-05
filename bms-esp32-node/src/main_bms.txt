@@ -1,334 +1,422 @@
+#include <Arduino.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <OneWire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
 #include <DallasTemperature.h>
-#include <string>
+#include <SPI.h>
+#include <LoRa.h>
+#include <SD.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-
-#define ONE_WIRE_BUS 4
-OneWire oneWire(ONE_WIRE_BUS);
-DallasTemperature sensors(&oneWire);
-
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// ── Konfigurasi WiFi ─────────────────────────────────────────
-const char* WIFI_SSID     = "Queenf4";
-const char* WIFI_PASSWORD = "QH12342210";
+// ==================== PILIH MODE KOMUNIKASI ====================
+const bool USE_LORA = true;
 
-// ── Konfigurasi MQTT Broker ──────────────────────────────────
-const char* MQTT_HOST = "148.230.97.68";
-const int   MQTT_PORT = 1885;
-const char* MQTT_CLIENT_ID = "esp32-bms-pack001-cell34";
+enum CommMode { MODE_WIFI, MODE_LORA };
 
-// ── Identitas Pack & Cell node ini ───────────────────────────
-const char* PACK_ID = "PACK_001";
-const int   CELL_ID_1 = 3;
-const int   CELL_ID_2 = 4;
+CommMode getActiveMode() {
+    return USE_LORA ? MODE_LORA : MODE_WIFI;
+}
+
+const char* modeLabel(CommMode m) {
+    return m == MODE_LORA ? "LoRa" : "WiFi";
+}
+
+// ==================== KONFIGURASI SD CARD (hybrid local storage) ====================
+#define SD_CS 13
+#define BUFFER_FILE "/buffer.log"
+bool sdReady = false;
+
+void initSDCard() {
+    if (!SD.begin(SD_CS)) {
+        Serial.println("PERINGATAN: SD card tidak terdeteksi -- hybrid storage nonaktif, jalan tanpa buffer.");
+        sdReady = false;
+        return;
+    }
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE) {
+        Serial.println("PERINGATAN: Tidak ada SD card terpasang.");
+        sdReady = false;
+        return;
+    }
+    uint64_t cardSizeMB = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD card terdeteksi, ukuran: %lluMB\n", cardSizeMB);
+    sdReady = true;
+}
+
+void bufferToSD(const char* topic, const char* payload) {
+    if (!sdReady) return;
+    File f = SD.open(BUFFER_FILE, FILE_APPEND);
+    if (!f) {
+        Serial.println("GAGAL buka file buffer SD buat nulis.");
+        return;
+    }
+    f.print(topic);
+    f.print("|");
+    f.println(payload);
+    f.close();
+    Serial.printf("  -> disimpan ke buffer SD (koneksi belum pulih): %s\n", topic);
+}
+
+bool hasBufferedData() {
+    if (!sdReady) return false;
+    if (!SD.exists(BUFFER_FILE)) return false;
+    File f = SD.open(BUFFER_FILE, FILE_READ);
+    if (!f) return false;
+    bool hasData = f.size() > 0;
+    f.close();
+    return hasData;
+}
+
+void flushBufferToMQTT(PubSubClient& client) {
+    if (!sdReady || !hasBufferedData()) return;
+
+    File f = SD.open(BUFFER_FILE, FILE_READ);
+    if (!f) return;
+
+    Serial.println("=== Mengirim ulang data dari buffer SD ===");
+    String remaining = "";
+    int sentCount = 0;
+    int failCount = 0;
+
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+
+        int sep = line.indexOf('|');
+        if (sep == -1) continue;
+
+        String topic = line.substring(0, sep);
+        String payload = line.substring(sep + 1);
+
+        if (failCount == 0 && client.publish(topic.c_str(), payload.c_str())) {
+            sentCount++;
+        } else {
+            failCount++;
+            remaining += line + "\n";
+        }
+    }
+    f.close();
+
+    if (remaining.length() == 0) {
+        SD.remove(BUFFER_FILE);
+        Serial.printf("=== Selesai: %d data terkirim, buffer dikosongkan ===\n", sentCount);
+    } else {
+        File fw = SD.open(BUFFER_FILE, FILE_WRITE);
+        if (fw) {
+            fw.print(remaining);
+            fw.close();
+        }
+        Serial.printf("=== %d data terkirim, %d masih tertunda (dicoba lagi nanti) ===\n", sentCount, failCount);
+    }
+}
+
+// ==================== KONFIGURASI SENSOR SUHU ====================
+#define ONE_WIRE_BUS 4
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature tempSensors(&oneWire);
+#define TEMP_ERROR_CODE -127.0
+
+float temp1C = 0;
+float temp2C = 0;
+int deviceCount = 0;
+const int cellTempIndex[] = {0, 0, 0, 1, 1, 1};
+
+// ==================== KONFIGURASI WIFI & MQTT ====================
+const char* WIFI_SSID     = "punyaSiapa";
+const char* WIFI_PASSWORD = "113333555555";
+
+const char* MQTT_HOST      = "148.230.97.68";
+const int   MQTT_PORT      = 1885;
+const char* MQTT_CLIENT_ID = "esp32-bms1-pack1-voltage";
+
+const char* BMS_ID  = "BMS_1";
+const char* PACK_ID = "PACK_1";
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
+// ==================== KONFIGURASI LoRa ====================
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
+#define LORA_SS    5
+#define LORA_RST   16
+#define LORA_DIO0  26
+#define LORA_FREQUENCY 433E6
+
 unsigned long lastPublish = 0;
 const unsigned long PUBLISH_INTERVAL = 2000;
+const int LORA_INTER_PACKET_DELAY_MS = 150;
 
-// ── Animasi state ────────────────────────────────────────────
-unsigned long lastFrameTime = 0;
-const unsigned long FRAME_INTERVAL = 250;
-int animFrame = 0;
+// ==================== KONFIGURASI PIN ADC (VOLTAGE DIVIDER) ====================
+const int CELL_PINS[] = {36, 39, 34, 35, 32, 33};
+const int NUM_CELLS = sizeof(CELL_PINS) / sizeof(CELL_PINS[0]);
 
-unsigned long lastModeSwitch = 0;
-const unsigned long MODE_INTERVAL = 6000;
-int animMode = 0;
-// 0=solo dance, 1=berantem, 2=rame-rame, 3=mata,
-// 4=flexing, 5=heart beat, 6=DVD bounce
-const int TOTAL_MODES = 7;
+const float DIVIDER_RATIOS[] = {
+    3.695,  // Cell 1 (GPIO36)
+    3.659,  // Cell 2 (GPIO39)
+    3.698,  // Cell 3 (GPIO34)
+    3.974,  // Cell 4 (GPIO35)
+    6.6,  // Cell 5 (GPIO32)
+    6.469   // Cell 6 (GPIO33)
+};
 
-// ── DVD bounce state (posisi & arah gerak) ─────────────────────
-float dvdX = 20, dvdY = 20;
-float dvdVX = 1.6, dvdVY = 1.2;
+const int SAMPLES = 32;
+const int SAMPLE_DELAY_US = 200;
 
-float temp1C = 0;
-float temp2C = 0;
+float cumulativeVoltage[16];
+float cellVoltage[16];
 
-// ── WiFi connect ──────────────────────────────────────────────
-void connectWiFi() {
-  Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
+float readDividedVoltage(int pin, float ratio) {
+    uint32_t total = 0;
+    for (int i = 0; i < SAMPLES; i++) {
+        total += analogReadMilliVolts(pin);
+        delayMicroseconds(SAMPLE_DELAY_US);
+    }
+    float mv = total / (float)SAMPLES;
+    return (mv / 1000.0) * ratio;
 }
 
-void connectMQTT() {
-  while (!mqttClient.connected()) {
+void readAllCellVoltages() {
+    float previous = 0.0;
+    for (int i = 0; i < NUM_CELLS; i++) {
+        cumulativeVoltage[i] = readDividedVoltage(CELL_PINS[i], DIVIDER_RATIOS[i]);
+        cellVoltage[i] = cumulativeVoltage[i] - previous;
+        previous = cumulativeVoltage[i];
+    }
+}
+
+float estimateSocSimple(float voltage) {
+    const float minV = 2.5;
+    const float maxV = 3.65;
+    float pct = (voltage - minV) / (maxV - minV) * 100.0;
+    if (pct > 100) pct = 100;
+    if (pct < 0) pct = 0;
+    return pct;
+}
+
+void printDeviceAddress(int index) {
+    DeviceAddress addr;
+    if (tempSensors.getAddress(addr, index)) {
+        Serial.printf("  Sensor %d address: ", index);
+        for (uint8_t i = 0; i < 8; i++) {
+            if (addr[i] < 16) Serial.print("0");
+            Serial.print(addr[i], HEX);
+        }
+        Serial.println();
+    } else {
+        Serial.printf("  Sensor %d: gagal ambil address (device tidak stabil)\n", index);
+    }
+}
+
+void readTemperatures() {
+    tempSensors.requestTemperatures();
+    float t1 = tempSensors.getTempCByIndex(0);
+    float t2 = tempSensors.getTempCByIndex(1);
+    if (t1 != TEMP_ERROR_CODE) {
+        temp1C = t1;
+    } else {
+        Serial.println("PERINGATAN: Sensor 1 gagal baca (-127) - cek wiring/pull-up!");
+    }
+    if (t2 != TEMP_ERROR_CODE) {
+        temp2C = t2;
+    } else {
+        Serial.println("PERINGATAN: Sensor 2 gagal baca (-127) - cek wiring/pull-up!");
+    }
+}
+
+float tempForCell(int cellIndex) {
+    return cellTempIndex[cellIndex] == 0 ? temp1C : temp2C;
+}
+
+// ==================== WIFI & MQTT ====================
+void connectWiFi() {
+    Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+        delay(500);
+        Serial.print(".");
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
+    } else {
+        Serial.println("\nWiFi belum konek dalam 15 detik, lanjut coba di loop berikutnya.");
+    }
+}
+
+bool connectMQTT() {
+    if (mqttClient.connected()) return true;
     Serial.print("Connecting to MQTT broker...");
     if (mqttClient.connect(MQTT_CLIENT_ID)) {
-      Serial.println(" connected!");
+        Serial.println(" connected!");
+        flushBufferToMQTT(mqttClient);
+        return true;
     } else {
-      Serial.printf(" failed, rc=%d, retry in 3s\n", mqttClient.state());
-      delay(3000);
+        Serial.printf(" failed, rc=%d\n", mqttClient.state());
+        return false;
     }
-  }
 }
 
-const char* determineState(float temperature) {
-  if (temperature > 55.0) return "fault";
-  return "discharging";
+const char* determineState(float voltage, float temperature) {
+    if (temperature > 55.0) return "fault";
+    if (voltage < 2.5) return "undervoltage";
+    if (voltage > 3.65) return "overvoltage";
+    return "discharging";
 }
 
-void publishCell(int cellId, float temperature) {
-  const char* state = determineState(temperature);
-  JsonDocument doc;
-  doc["voltage"] = 0;
-  doc["temperature"] = round(temperature * 10) / 10.0;
-  doc["state"] = state;
-
-  char payload[256];
-  serializeJson(doc, payload);
-
-  char topic[64];
-  snprintf(topic, sizeof(topic), "bms/%s/cell/%d", PACK_ID, cellId);
-
-  mqttClient.publish(topic, payload);
-  Serial.printf("[%s] T:%.1f state:%s -> %s\n", topic, temperature, state, payload);
-}
-
-float sendTemperature1() {
-  sensors.requestTemperatures();
-  float t = sensors.getTempCByIndex(0);
-  Serial.print("Temp 1 C: "); Serial.println(t);
-  return t;
-}
-
-float sendTemperature2() {
-  float t = sensors.getTempCByIndex(1);
-  Serial.print("Temp 2 C: "); Serial.println(t);
-  return t;
-}
-
-// ── Gambar garis "tebal" biar kesan berotot ────────────────────
-void thickLine(int x0, int y0, int x1, int y1, int thickness) {
-  oled.drawLine(x0, y0, x1, y1, WHITE);
-  for (int i = 1; i <= thickness; i++) {
-    oled.drawLine(x0 + i, y0, x1 + i, y1, WHITE);
-    oled.drawLine(x0, y0 + i, x1, y1 + i, WHITE);
-  }
-}
-
-// ── Stick figure BESAR & berotot ───────────────────────────────
-void drawBigFigure(int x, int y,
-                    int lArmDx, int lArmDy, int rArmDx, int rArmDy,
-                    int lLegDx, int lLegDy, int rLegDx, int rLegDy) {
-  oled.fillCircle(x, y - 10, 6, WHITE);
-  oled.fillRoundRect(x - 7, y - 3, 14, 20, 3, WHITE);
-  thickLine(x - 6, y + 2, x - 6 + lArmDx, y + 2 + lArmDy, 3);
-  thickLine(x + 6, y + 2, x + 6 + rArmDx, y + 2 + rArmDy, 3);
-  oled.fillCircle(x - 6 + lArmDx, y + 2 + lArmDy, 2, WHITE);
-  oled.fillCircle(x + 6 + rArmDx, y + 2 + rArmDy, 2, WHITE);
-  thickLine(x - 4, y + 17, x - 4 + lLegDx, y + 17 + lLegDy, 3);
-  thickLine(x + 4, y + 17, x + 4 + rLegDx, y + 17 + rLegDy, 3);
-}
-
-void drawSoloDanceBig(int frame) {
-  int x = 64, y = 26;
-  switch (frame % 4) {
-    case 0: drawBigFigure(x, y, -14,-12, 14,-12, -8,16, 8,16); break;
-    case 1: drawBigFigure(x, y, -16,2, 16,2, -10,14, 10,14); break;
-    case 2: drawBigFigure(x, y, -14,-8, 14,6, -6,16, 12,12); break;
-    case 3: drawBigFigure(x, y, -14,6, 14,-8, 12,12, -6,16); break;
-  }
-}
-
-void drawFightingBig(int frame) {
-  int xL = 32, xR = 96, y = 30;
-  bool leftPunch = (frame % 2 == 0);
-  if (leftPunch) {
-    drawBigFigure(xL, y, -10,8, 34,0, -8,16, 8,16);
-    drawBigFigure(xR, y, -34,0, 10,-10, -8,16, 8,16);
-  } else {
-    drawBigFigure(xL, y, -10,-10, 34,0, -8,16, 8,16);
-    drawBigFigure(xR, y, -34,0, 10,8, -8,16, 8,16);
-  }
-  if (frame % 4 == 1 || frame % 4 == 3) {
-    oled.setTextSize(1);
-    oled.setCursor(52, 4);
-    oled.print("POW!");
-  }
-}
-
-void drawGroupDanceBig(int frame) {
-  int y = 24;
-  int positions[3] = {22, 64, 106};
-  for (int i = 0; i < 3; i++) {
-    int x = positions[i];
-    int f = (frame + i) % 4;
-    switch (f) {
-      case 0: drawBigFigure(x, y, -10,-8, 10,-8, -6,12, 6,12); break;
-      case 1: drawBigFigure(x, y, -11,2, 11,2, -8,10, 8,10); break;
-      case 2: drawBigFigure(x, y, -10,-6, 10,6, -4,12, 8,10); break;
-      case 3: drawBigFigure(x, y, -10,6, 10,-6, 8,10, -4,12); break;
+void sendCellData(const char* topic, const char* payload) {
+    if (getActiveMode() == MODE_LORA) {
+        LoRa.beginPacket();
+        LoRa.print(topic);
+        LoRa.print("|");
+        LoRa.print(payload);
+        LoRa.endPacket();
+        return;
     }
-  }
+
+    if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
+        bool ok = mqttClient.publish(topic, payload);
+        if (!ok) {
+            Serial.println("  -> publish MQTT gagal walau connected, simpan ke buffer SD.");
+            bufferToSD(topic, payload);
+        }
+    } else {
+        bufferToSD(topic, payload);
+    }
 }
 
-void drawEyes(int frame) {
-  int cx1 = 40, cx2 = 88, cy = 32;
-  int w = 26, h = 26;
-  int blinkCycle = frame % 16;
-  int eyeH = h;
-  int offsetX1 = 0, offsetX2 = 0;
+void publishCell(int cellId, float voltage, float temperature, float packTempMax) {
+    const char* state = determineState(voltage, temperature);
+    JsonDocument doc;
+    doc["voltage"] = round(voltage * 1000) / 1000.0;
+    doc["temperature"] = round(temperature * 10) / 10.0;
+    doc["pack_temp"] = round(packTempMax * 10) / 10.0;
+    doc["state"] = state;
+    doc["channel"] = modeLabel(getActiveMode());
 
-  if (blinkCycle == 6) eyeH = h * 0.6;
-  else if (blinkCycle == 7) eyeH = 2;
-  else if (blinkCycle == 8) eyeH = h * 0.6;
+    char payload[160];
+    serializeJson(doc, payload);
 
-  if (blinkCycle >= 10 && blinkCycle <= 12) { offsetX1 = -4; offsetX2 = -4; }
+    char topic[80];
+    snprintf(topic, sizeof(topic), "bms/%s/pack/%s/cell/%d", BMS_ID, PACK_ID, cellId);
 
-  oled.fillRoundRect(cx1 - w/2, cy - eyeH/2, w, eyeH, 6, WHITE);
-  oled.fillRoundRect(cx2 - w/2 + offsetX2, cy - eyeH/2, w, eyeH, 6, WHITE);
-
-  if (eyeH > 8) {
-    oled.fillCircle(cx1 + offsetX1, cy, 4, BLACK);
-    oled.fillCircle(cx2 + offsetX2, cy, 4, BLACK);
-  }
-}
-
-// ── MODE 4: flexing bicep (nge-gym pamer otot) ──────────────────
-void drawFlexing(int frame) {
-  int x = 64, y = 30;
-  oled.fillCircle(x, y - 10, 6, WHITE);
-  oled.fillRoundRect(x - 7, y - 3, 14, 20, 3, WHITE);
-
-  bool bigFlex = (frame % 2 == 0);
-  int bicepSize = bigFlex ? 8 : 5;
-
-  // lengan kiri: siku ditekuk ke atas, bisep membesar-mengecil
-  thickLine(x - 6, y + 2, x - 14, y - 2, 3);       // lengan atas
-  thickLine(x - 14, y - 2, x - 10, y - 10, 3);     // lengan bawah ke atas
-  oled.fillCircle(x - 14, y - 2, bicepSize, WHITE); // gembungan bisep
-
-  // lengan kanan sama
-  thickLine(x + 6, y + 2, x + 14, y - 2, 3);
-  thickLine(x + 14, y - 2, x + 10, y - 10, 3);
-  oled.fillCircle(x + 14, y - 2, bicepSize, WHITE);
-
-  // kaki berdiri tegap
-  thickLine(x - 4, y + 17, x - 5, y + 30, 3);
-  thickLine(x + 4, y + 17, x + 5, y + 30, 3);
-
-  if (bigFlex) {
-    oled.setTextSize(1);
-    oled.setCursor(40, 4);
-    oled.print("GRR!");
-  }
-}
-
-// ── MODE 5: heart beat (hati berdetak) ──────────────────────────
-void drawHeart(int cx, int cy, int size) {
-  oled.fillCircle(cx - size/2, cy, size/2, WHITE);
-  oled.fillCircle(cx + size/2, cy, size/2, WHITE);
-  oled.fillTriangle(cx - size, cy, cx + size, cy, cx, cy + size, WHITE);
-}
-
-void drawHeartBeat(int frame) {
-  int beat = frame % 6;
-  int size;
-  switch (beat) {
-    case 0: size = 14; break;
-    case 1: size = 20; break;  // detak besar
-    case 2: size = 14; break;
-    case 3: size = 12; break;
-    case 4: size = 18; break;  // detak kedua (dug-dug)
-    default: size = 12; break;
-  }
-  drawHeart(64, 30, size);
-}
-
-// ── MODE 6: DVD bounce (teks "BMS" mantul kayak screensaver) ───
-void drawDvdBounce() {
-  const char* label = "BMS";
-  int textW = 18; // perkiraan lebar teks (textSize 1, 3 karakter)
-  int textH = 8;
-
-  dvdX += dvdVX;
-  dvdY += dvdVY;
-
-  if (dvdX <= 0 || dvdX >= SCREEN_WIDTH - textW) dvdVX = -dvdVX;
-  if (dvdY <= 0 || dvdY >= SCREEN_HEIGHT - textH) dvdVY = -dvdVY;
-
-  oled.setTextSize(2);
-  oled.setCursor((int)dvdX, (int)dvdY);
-  oled.print(label);
+    sendCellData(topic, payload);
+    Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s\n",
+                  topic, modeLabel(getActiveMode()), voltage, temperature, state, payload);
 }
 
 void setup() {
-  Serial.begin(115200);
-  sensors.begin();
+    Serial.begin(115200);
 
-  if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println(F("SSD1306 allocation failed"));
-    while (true);
-  }
+    analogReadResolution(12);
+    for (int i = 0; i < NUM_CELLS; i++) {
+        analogSetPinAttenuation(CELL_PINS[i], ADC_11db);
+    }
+    Serial.printf("Battery Monitor %dS - Mode: %s\n", NUM_CELLS, modeLabel(getActiveMode()));
 
-  connectWiFi();
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+    tempSensors.begin();
+    deviceCount = tempSensors.getDeviceCount();
+    Serial.printf("=== OneWire bus (GPIO%d): %d device terdeteksi ===\n", ONE_WIRE_BUS, deviceCount);
+    if (deviceCount < 2) {
+        Serial.println("PERINGATAN: seharusnya 2 sensor, tapi yang kedeteksi kurang dari itu!");
+    }
+    for (int i = 0; i < deviceCount; i++) {
+        printDeviceAddress(i);
+    }
+    readTemperatures();
+
+    if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+        Serial.println(F("SSD1306 allocation failed"));
+        while (true);
+    }
+    oled.clearDisplay();
+    oled.display();
+
+    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
+    initSDCard();
+
+    if (getActiveMode() == MODE_LORA) {
+        LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+        if (!LoRa.begin(LORA_FREQUENCY)) {
+            Serial.println("Gagal inisialisasi modul LoRa! Cek wiring.");
+            while (true) delay(1000);
+        }
+        Serial.println("LoRa siap, mode pengiriman: point-to-point ke gateway.");
+    } else {
+        connectWiFi();
+        mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+        if (WiFi.status() == WL_CONNECTED) connectMQTT();
+    }
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) connectWiFi();
-  if (!mqttClient.connected()) connectMQTT();
-  mqttClient.loop();
+    if (getActiveMode() == MODE_WIFI) {
+        if (WiFi.status() != WL_CONNECTED) {
+            connectWiFi();
+        } else if (!mqttClient.connected()) {
+            connectMQTT();
+        }
+        mqttClient.loop();
+    }
 
-  temp1C = sendTemperature1();
-  delay(120);
-  temp2C = sendTemperature2();
+    readAllCellVoltages();
+    readTemperatures();
+    float packTempMax = max(temp1C, temp2C);
 
-  unsigned long now = millis();
+    float socSum = 0;
+    for (int i = 0; i < NUM_CELLS; i++) socSum += estimateSocSimple(cellVoltage[i]);
+    float socAvg = socSum / NUM_CELLS;
 
-  if (now - lastFrameTime >= FRAME_INTERVAL) {
-    lastFrameTime = now;
-    animFrame++;
-  }
+    Serial.println("--------------------------------");
+    for (int i = 0; i < NUM_CELLS; i++) {
+        Serial.printf("Cell %d : %.3f V | %.1f C\n", i + 1, cellVoltage[i], tempForCell(i));
+    }
+    Serial.printf("Total  : %.3f V | SoC rata-rata: %.0f%%\n", cumulativeVoltage[NUM_CELLS - 1], socAvg);
+    Serial.printf("Mode   : %s | SD: %s | Buffer pending: %s\n",
+                  modeLabel(getActiveMode()),
+                  sdReady ? "OK" : "tidak ada",
+                  hasBufferedData() ? "ADA" : "kosong");
 
-  if (now - lastModeSwitch >= MODE_INTERVAL) {
-    lastModeSwitch = now;
-    animMode = (animMode + 1) % TOTAL_MODES;
-  }
+    oled.clearDisplay();
+    oled.setTextSize(1);
+    oled.setTextColor(WHITE);
 
-  oled.clearDisplay();
-  oled.setTextColor(WHITE);
+    oled.setCursor(0, 0);
+    oled.printf("Mode:%s SD:%s%s", modeLabel(getActiveMode()),
+                sdReady ? "OK" : "-",
+                hasBufferedData() ? "*" : "");
 
-  // ── Tampilan suhu di-nonaktifkan sementara, biar fokus animasi lucu ──
-  // oled.setTextSize(1);
-  // oled.setCursor(20, 20);
-  // oled.print("T1: "); oled.print(temp1C); oled.println(" C");
-  // oled.setCursor(20, 34);
-  // oled.print("T2: "); oled.print(temp2C); oled.println(" C");
+    oled.setCursor(0, 10);
+    oled.printf("Cap:%.0f%% Tot:%.2fV", socAvg, cumulativeVoltage[NUM_CELLS - 1]);
 
-  switch (animMode) {
-    case 0: drawSoloDanceBig(animFrame); break;
-    case 1: drawFightingBig(animFrame); break;
-    case 2: drawGroupDanceBig(animFrame); break;
-    case 3: drawEyes(animFrame); break;
-    case 4: drawFlexing(animFrame); break;
-    case 5: drawHeartBeat(animFrame); break;
-    case 6: drawDvdBounce(); break;
-  }
+    oled.setCursor(0, 24);
+    oled.printf("C1:%.2f C4:%.2f", cellVoltage[0], cellVoltage[3]);
+    oled.setCursor(0, 36);
+    oled.printf("C2:%.2f C5:%.2f", cellVoltage[1], cellVoltage[4]);
+    oled.setCursor(0, 48);
+    oled.printf("C3:%.2f C6:%.2f", cellVoltage[2], cellVoltage[5]);
 
-  oled.display();
+    oled.display();
 
-  if (now - lastPublish >= PUBLISH_INTERVAL) {
-    lastPublish = now;
-    publishCell(CELL_ID_1, temp1C);
-    publishCell(CELL_ID_2, temp2C);
-  }
+    unsigned long now = millis();
+    if (now - lastPublish >= PUBLISH_INTERVAL) {
+        lastPublish = now;
+        for (int i = 0; i < NUM_CELLS; i++) {
+            publishCell(i + 1, cellVoltage[i], tempForCell(i), packTempMax);
+            if (getActiveMode() == MODE_LORA) {
+                delay(LORA_INTER_PACKET_DELAY_MS);
+            }
+        }
+    }
 
-  delay(120);
+    delay(1000);
 }

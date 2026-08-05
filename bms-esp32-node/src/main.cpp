@@ -7,32 +7,136 @@
 #include <ArduinoJson.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <SPI.h>
+#include <LoRa.h>
+#include <SD.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
+// ==================== PILIH MODE KOMUNIKASI ====================
+const bool USE_LORA = false;
+
+enum CommMode { MODE_WIFI, MODE_LORA };
+
+CommMode getActiveMode() {
+    return USE_LORA ? MODE_LORA : MODE_WIFI;
+}
+
+const char* modeLabel(CommMode m) {
+    return m == MODE_LORA ? "LoRa" : "WiFi";
+}
+
+// ==================== KONFIGURASI SD CARD (hybrid local storage) ====================
+#define SD_CS 13
+#define BUFFER_FILE "/buffer.log"
+bool sdReady = false;
+
+void initSDCard() {
+    if (!SD.begin(SD_CS)) {
+        Serial.println("PERINGATAN: SD card tidak terdeteksi -- hybrid storage nonaktif, jalan tanpa buffer.");
+        sdReady = false;
+        return;
+    }
+    uint8_t cardType = SD.cardType();
+    if (cardType == CARD_NONE) {
+        Serial.println("PERINGATAN: Tidak ada SD card terpasang.");
+        sdReady = false;
+        return;
+    }
+    uint64_t cardSizeMB = SD.cardSize() / (1024 * 1024);
+    Serial.printf("SD card terdeteksi, ukuran: %lluMB\n", cardSizeMB);
+    sdReady = true;
+}
+
+void bufferToSD(const char* topic, const char* payload) {
+    if (!sdReady) return;
+    File f = SD.open(BUFFER_FILE, FILE_APPEND);
+    if (!f) {
+        Serial.println("GAGAL buka file buffer SD buat nulis.");
+        return;
+    }
+    f.print(topic);
+    f.print("|");
+    f.println(payload);
+    f.close();
+    Serial.printf("  -> disimpan ke buffer SD (koneksi belum pulih): %s\n", topic);
+}
+
+bool hasBufferedData() {
+    if (!sdReady) return false;
+    if (!SD.exists(BUFFER_FILE)) return false;
+    File f = SD.open(BUFFER_FILE, FILE_READ);
+    if (!f) return false;
+    bool hasData = f.size() > 0;
+    f.close();
+    return hasData;
+}
+
+void flushBufferToMQTT(PubSubClient& client) {
+    if (!sdReady || !hasBufferedData()) return;
+
+    File f = SD.open(BUFFER_FILE, FILE_READ);
+    if (!f) return;
+
+    Serial.println("=== Mengirim ulang data dari buffer SD ===");
+    String remaining = "";
+    int sentCount = 0;
+    int failCount = 0;
+
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+
+        int sep = line.indexOf('|');
+        if (sep == -1) continue;
+
+        String topic = line.substring(0, sep);
+        String payload = line.substring(sep + 1);
+
+        if (failCount == 0 && client.publish(topic.c_str(), payload.c_str())) {
+            sentCount++;
+        } else {
+            failCount++;
+            remaining += line + "\n";
+        }
+    }
+    f.close();
+
+    if (remaining.length() == 0) {
+        SD.remove(BUFFER_FILE);
+        Serial.printf("=== Selesai: %d data terkirim, buffer dikosongkan ===\n", sentCount);
+    } else {
+        File fw = SD.open(BUFFER_FILE, FILE_WRITE);
+        if (fw) {
+            fw.print(remaining);
+            fw.close();
+        }
+        Serial.printf("=== %d data terkirim, %d masih tertunda (dicoba lagi nanti) ===\n", sentCount, failCount);
+    }
+}
+
 // ==================== KONFIGURASI SENSOR SUHU ====================
-// 2 sensor DS18B20 di satu bus OneWire (GPIO4, power 3V3).
-// Karena cuma 2 sensor buat 6 cell, dipakai skema GROUPING:
-//   Sensor 1 (index 0) -> mewakili Cell 1, 2, 3
-//   Sensor 2 (index 1) -> mewakili Cell 4, 5, 6
-// GANTI mapping di bawah (cellTempIndex[]) kalau posisi fisik sensormu beda.
-#define ONE_WIRE_BUS 4
+#define ONE_WIRE_BUS 17
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature tempSensors(&oneWire);
+#define TEMP_ERROR_CODE -127.0
 
 float temp1C = 0;
 float temp2C = 0;
-// index 0 = pakai temp1C, index 1 = pakai temp2C, untuk tiap Cell 1..6
+int deviceCount = 0;
 const int cellTempIndex[] = {0, 0, 0, 1, 1, 1};
 
 // ==================== KONFIGURASI WIFI & MQTT ====================
-const char* WIFI_SSID     = "Queenf4";
-const char* WIFI_PASSWORD = "QH12342210";
+// const char* WIFI_SSID     = "punyaSiapa";
+// const char* WIFI_PASSWORD = "113333555555";
+const char* WIFI_SSID     = "403 Forbidden";
+const char* WIFI_PASSWORD = "nanonano123";
 
-const char* MQTT_HOST = "148.230.97.68";
-const int   MQTT_PORT = 1885;
+const char* MQTT_HOST      = "148.230.97.68";
+const int   MQTT_PORT      = 1885;
 const char* MQTT_CLIENT_ID = "esp32-bms1-pack1-voltage";
 
 const char* BMS_ID  = "BMS_1";
@@ -41,20 +145,30 @@ const char* PACK_ID = "PACK_1";
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 
+// ==================== KONFIGURASI LoRa ====================
+#define LORA_SCK   18
+#define LORA_MISO  19
+#define LORA_MOSI  23
+#define LORA_SS    5
+#define LORA_RST   4
+#define LORA_DIO0  26
+#define LORA_FREQUENCY 433E6
+
 unsigned long lastPublish = 0;
 const unsigned long PUBLISH_INTERVAL = 2000;
+const int LORA_INTER_PACKET_DELAY_MS = 150;
 
 // ==================== KONFIGURASI PIN ADC (VOLTAGE DIVIDER) ====================
-const int CELL_PINS[] = {36, 39, 34, 35, 32, 33};   // GPIO36(VP),39(VN),34,35,32,33(D33)
+const int CELL_PINS[] = {36, 39, 34, 35, 32, 33};
 const int NUM_CELLS = sizeof(CELL_PINS) / sizeof(CELL_PINS[0]);
 
 const float DIVIDER_RATIOS[] = {
-    3.695,  // Cell 1 (GPIO36) - dikalibrasi individual vs multimeter (3.1V)
-    3.659,  // Cell 2 (GPIO39) - dikalibrasi individual vs multimeter (3.1V)
-    3.698,  // Cell 3 (GPIO34) - dikalibrasi individual vs multimeter (3.1V)
-    3.974,  // Cell 4 (GPIO35) - dikalibrasi individual vs multimeter (3.1V)
-    6.469,  // Cell 5 (GPIO32) - dikalibrasi individual vs multimeter (3.1V)
-    6.469   // Cell 6 (GPIO33) - dikalibrasi individual vs multimeter (3.1V)
+    3.695,  // Cell 1 (GPIO36)
+    3.659,  // Cell 2 (GPIO39)
+    3.698,  // Cell 3 (GPIO34)
+    3.974,  // Cell 4 (GPIO35)
+    6.6,  // Cell 5 (GPIO32)
+    6.5   // Cell 6 (GPIO33)
 };
 
 const int SAMPLES = 32;
@@ -77,15 +191,59 @@ void readAllCellVoltages() {
     float previous = 0.0;
     for (int i = 0; i < NUM_CELLS; i++) {
         cumulativeVoltage[i] = readDividedVoltage(CELL_PINS[i], DIVIDER_RATIOS[i]);
-        cellVoltage[i] = cumulativeVoltage[i] - previous;
+        float newCellVoltage = cumulativeVoltage[i] - previous;
+
+        // Validasi kewajaran: satu sel LiFePO4 realistisnya 0V (habis total)
+        // s/d ~4.2V (margin aman di atas 3.65V). Di luar itu -> kemungkinan
+        // besar wiring/kontak longgar (pin floating), BUKAN data asli.
+        // Pertahankan nilai valid terakhir daripada kirim sampah ke dashboard.
+        if (newCellVoltage >= -0.05 && newCellVoltage <= 4.2) {
+            cellVoltage[i] = newCellVoltage;
+        } else {
+            Serial.printf("PERINGATAN: Cell %d reading %.3fV di luar rentang wajar -- dipertahankan nilai lama %.3fV. Cek wiring!\n",
+                          i + 1, newCellVoltage, cellVoltage[i]);
+        }
         previous = cumulativeVoltage[i];
+    }
+}
+
+float estimateSocSimple(float voltage) {
+    const float minV = 2.5;
+    const float maxV = 3.65;
+    float pct = (voltage - minV) / (maxV - minV) * 100.0;
+    if (pct > 100) pct = 100;
+    if (pct < 0) pct = 0;
+    return pct;
+}
+
+void printDeviceAddress(int index) {
+    DeviceAddress addr;
+    if (tempSensors.getAddress(addr, index)) {
+        Serial.printf("  Sensor %d address: ", index);
+        for (uint8_t i = 0; i < 8; i++) {
+            if (addr[i] < 16) Serial.print("0");
+            Serial.print(addr[i], HEX);
+        }
+        Serial.println();
+    } else {
+        Serial.printf("  Sensor %d: gagal ambil address (device tidak stabil)\n", index);
     }
 }
 
 void readTemperatures() {
     tempSensors.requestTemperatures();
-    temp1C = tempSensors.getTempCByIndex(0);
-    temp2C = tempSensors.getTempCByIndex(1);
+    float t1 = tempSensors.getTempCByIndex(0);
+    float t2 = tempSensors.getTempCByIndex(1);
+    if (t1 != TEMP_ERROR_CODE) {
+        temp1C = t1;
+    } else {
+        Serial.println("PERINGATAN: Sensor 1 gagal baca (-127) - cek wiring/pull-up!");
+    }
+    if (t2 != TEMP_ERROR_CODE) {
+        temp2C = t2;
+    } else {
+        Serial.println("PERINGATAN: Sensor 2 gagal baca (-127) - cek wiring/pull-up!");
+    }
 }
 
 float tempForCell(int cellIndex) {
@@ -96,31 +254,57 @@ float tempForCell(int cellIndex) {
 void connectWiFi() {
     Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    while (WiFi.status() != WL_CONNECTED) {
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
         delay(500);
         Serial.print(".");
     }
-    Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
-}
-
-void connectMQTT() {
-    while (!mqttClient.connected()) {
-        Serial.print("Connecting to MQTT broker...");
-        if (mqttClient.connect(MQTT_CLIENT_ID)) {
-            Serial.println(" connected!");
-        } else {
-            Serial.printf(" failed, rc=%d, retry in 3s\n", mqttClient.state());
-            delay(3000);
-        }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
+    } else {
+        Serial.println("\nWiFi belum konek dalam 15 detik, lanjut coba di loop berikutnya.");
     }
 }
 
-// State sekarang mempertimbangkan voltage DAN suhu.
+bool connectMQTT() {
+    if (mqttClient.connected()) return true;
+    Serial.print("Connecting to MQTT broker...");
+    if (mqttClient.connect(MQTT_CLIENT_ID)) {
+        Serial.println(" connected!");
+        flushBufferToMQTT(mqttClient);
+        return true;
+    } else {
+        Serial.printf(" failed, rc=%d\n", mqttClient.state());
+        return false;
+    }
+}
+
 const char* determineState(float voltage, float temperature) {
     if (temperature > 55.0) return "fault";
     if (voltage < 2.5) return "undervoltage";
     if (voltage > 3.65) return "overvoltage";
     return "discharging";
+}
+
+void sendCellData(const char* topic, const char* payload) {
+    if (getActiveMode() == MODE_LORA) {
+        LoRa.beginPacket();
+        LoRa.print(topic);
+        LoRa.print("|");
+        LoRa.print(payload);
+        LoRa.endPacket();
+        return;
+    }
+
+    if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
+        bool ok = mqttClient.publish(topic, payload);
+        if (!ok) {
+            Serial.println("  -> publish MQTT gagal walau connected, simpan ke buffer SD.");
+            bufferToSD(topic, payload);
+        }
+    } else {
+        bufferToSD(topic, payload);
+    }
 }
 
 void publishCell(int cellId, float voltage, float temperature, float packTempMax) {
@@ -130,6 +314,7 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
     doc["temperature"] = round(temperature * 10) / 10.0;
     doc["pack_temp"] = round(packTempMax * 10) / 10.0;
     doc["state"] = state;
+    doc["channel"] = modeLabel(getActiveMode());
 
     char payload[160];
     serializeJson(doc, payload);
@@ -137,8 +322,9 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
     char topic[80];
     snprintf(topic, sizeof(topic), "bms/%s/pack/%s/cell/%d", BMS_ID, PACK_ID, cellId);
 
-    mqttClient.publish(topic, payload);
-    Serial.printf("[%s] V:%.3f T:%.1f state:%s -> %s\n", topic, voltage, temperature, state, payload);
+    sendCellData(topic, payload);
+    Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s\n",
+                  topic, modeLabel(getActiveMode()), voltage, temperature, state, payload);
 }
 
 void setup() {
@@ -148,9 +334,18 @@ void setup() {
     for (int i = 0; i < NUM_CELLS; i++) {
         analogSetPinAttenuation(CELL_PINS[i], ADC_11db);
     }
-    Serial.printf("Battery Monitor %dS - Voltage + Temperature\n", NUM_CELLS);
+    Serial.printf("Battery Monitor %dS - Mode: %s\n", NUM_CELLS, modeLabel(getActiveMode()));
 
     tempSensors.begin();
+    deviceCount = tempSensors.getDeviceCount();
+    Serial.printf("=== OneWire bus (GPIO%d): %d device terdeteksi ===\n", ONE_WIRE_BUS, deviceCount);
+    if (deviceCount < 2) {
+        Serial.println("PERINGATAN: seharusnya 2 sensor, tapi yang kedeteksi kurang dari itu!");
+    }
+    for (int i = 0; i < deviceCount; i++) {
+        printDeviceAddress(i);
+    }
+    readTemperatures();
 
     if (!oled.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
         Serial.println(F("SSD1306 allocation failed"));
@@ -159,45 +354,80 @@ void setup() {
     oled.clearDisplay();
     oled.display();
 
-    connectWiFi();
-    mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+    SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
+    initSDCard();
+
+    if (getActiveMode() == MODE_LORA) {
+        LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+        if (!LoRa.begin(LORA_FREQUENCY)) {
+            Serial.println("Gagal inisialisasi modul LoRa! Cek wiring.");
+            while (true) delay(1000);
+        }
+        Serial.println("LoRa siap, mode pengiriman: point-to-point ke gateway.");
+    } else {
+        connectWiFi();
+        mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+        if (WiFi.status() == WL_CONNECTED) connectMQTT();
+    }
 }
 
 void loop() {
-    if (WiFi.status() != WL_CONNECTED) connectWiFi();
-    if (!mqttClient.connected()) connectMQTT();
-    mqttClient.loop();
+    if (getActiveMode() == MODE_WIFI) {
+        if (WiFi.status() != WL_CONNECTED) {
+            connectWiFi();
+        } else if (!mqttClient.connected()) {
+            connectMQTT();
+        }
+        mqttClient.loop();
+    }
 
     readAllCellVoltages();
     readTemperatures();
     float packTempMax = max(temp1C, temp2C);
 
-    // Serial log
+    float socSum = 0;
+    for (int i = 0; i < NUM_CELLS; i++) socSum += estimateSocSimple(cellVoltage[i]);
+    float socAvg = socSum / NUM_CELLS;
+
     Serial.println("--------------------------------");
     for (int i = 0; i < NUM_CELLS; i++) {
         Serial.printf("Cell %d : %.3f V | %.1f C\n", i + 1, cellVoltage[i], tempForCell(i));
     }
-    Serial.printf("Total  : %.3f V\n", cumulativeVoltage[NUM_CELLS - 1]);
-    Serial.printf("Temp1  : %.1f C | Temp2: %.1f C\n", temp1C, temp2C);
+    Serial.printf("Total  : %.3f V | SoC rata-rata: %.0f%%\n", cumulativeVoltage[NUM_CELLS - 1], socAvg);
+    Serial.printf("Mode   : %s | SD: %s | Buffer pending: %s\n",
+                  modeLabel(getActiveMode()),
+                  sdReady ? "OK" : "tidak ada",
+                  hasBufferedData() ? "ADA" : "kosong");
 
-    // OLED (tetap fokus voltage, suhu cukup di Serial+MQTT biar layar nggak sesak)
     oled.clearDisplay();
     oled.setTextSize(1);
     oled.setTextColor(WHITE);
-    for (int i = 0; i < NUM_CELLS; i++) {
-        oled.setCursor(0, i * 10);
-        oled.printf("Cell %d: %.3fV", i + 1, cellVoltage[i]);
-    }
-    oled.setCursor(0, NUM_CELLS * 10 + 2);
-    oled.printf("Total : %.3fV", cumulativeVoltage[NUM_CELLS - 1]);
+
+    oled.setCursor(0, 0);
+    oled.printf("Mode:%s SD:%s%s", modeLabel(getActiveMode()),
+                sdReady ? "OK" : "-",
+                hasBufferedData() ? "*" : "");
+
+    oled.setCursor(0, 10);
+    oled.printf("Cap:%.0f%% Tot:%.2fV", socAvg, cumulativeVoltage[NUM_CELLS - 1]);
+
+    oled.setCursor(0, 24);
+    oled.printf("C1:%.2f C4:%.2f", cellVoltage[0], cellVoltage[3]);
+    oled.setCursor(0, 36);
+    oled.printf("C2:%.2f C5:%.2f", cellVoltage[1], cellVoltage[4]);
+    oled.setCursor(0, 48);
+    oled.printf("C3:%.2f C6:%.2f", cellVoltage[2], cellVoltage[5]);
+
     oled.display();
 
-    // MQTT publish (tiap PUBLISH_INTERVAL, semua 6 cell)
     unsigned long now = millis();
     if (now - lastPublish >= PUBLISH_INTERVAL) {
         lastPublish = now;
         for (int i = 0; i < NUM_CELLS; i++) {
             publishCell(i + 1, cellVoltage[i], tempForCell(i), packTempMax);
+            if (getActiveMode() == MODE_LORA) {
+                delay(LORA_INTER_PACKET_DELAY_MS);
+            }
         }
     }
 
