@@ -1,6 +1,6 @@
 # =============================================================
 # Modular Universal BMS — Docker Compose
-# Services: MongoDB | Mosquitto | Backend (Node.js) | Frontend (Vue)
+# Services: MongoDB | Mosquitto | Backend (Node.js) | Frontend (React)
 # =============================================================
 
 services:
@@ -73,15 +73,15 @@ services:
     networks:
       - bms_network
 
-  # ─── 4. Frontend — Vue.js (Vite) ──────────────────────────
+  # ─── 4. Frontend — React (Vite) via Nginx ─────────────────
   frontend:
     build:
-      context: ./frontend
+      context: ./new-frontend
       dockerfile: Dockerfile
     container_name: bms_frontend
     restart: unless-stopped
     ports:
-      - "8090:80"   # Nginx serves built Vue app
+      - "8090:80"   # Nginx serves the built React app + proxies /api & /socket.io to backend
     depends_on:
       - backend
     networks:

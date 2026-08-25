@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    // Composite projects can't disable emit, so redirect it into node_modules
+    // instead of letting it write a stale vite.config.js next to the real
+    // vite.config.ts (which Vite would then load in preference to the .ts).
+    "outDir": "./node_modules/.tsbuild-node",
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+  },
+  "include": ["vite.config.ts"]
+}

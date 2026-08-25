@@ -213,10 +213,13 @@ function initMQTT(io) {
         pack_voltage_delta_mv: deltaMv,
         pack_imbalanced: isImbalanced,
       };
-      io.emit("cell:update", event);
+      // Scoped to the pack's room — clients only get this if they were
+      // let into `pack:${pack_id}` by the join:pack authorization check
+      // in socketService.js, not broadcast to every connected socket.
+      io.to(`pack:${pack_id}`).emit("cell:update", event);
 
       if (alertTypes.length || (isImbalanced && !wasImbalanced)) {
-        io.emit("cell:alert", event);
+        io.to(`pack:${pack_id}`).emit("cell:alert", event);
         console.warn(
           `🚨 ALERT — BMS: ${bms_id}, Pack: ${pack_id}, Cell: ${cell_id}`,
           liveAlerts,

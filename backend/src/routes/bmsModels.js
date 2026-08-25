@@ -10,10 +10,12 @@
 const { Router } = require("express");
 const BmsModel = require("../models/BmsModel");
 const BatteryPack = require("../models/BatteryPack");
+const { protect, isAdmin } = require("../middleware/auth");
 const router = Router();
 
-// GET /api/bms-models
-router.get("/", async (_req, res, next) => {
+// GET /api/bms-models — dipakai user biasa juga (pilih model saat create BMS),
+// jadi cukup wajib login, tidak wajib admin.
+router.get("/", protect, async (_req, res, next) => {
   try {
     const models = await BmsModel.find().sort({ model_name: 1 }).lean();
     res.json(models);
@@ -22,8 +24,8 @@ router.get("/", async (_req, res, next) => {
   }
 });
 
-// POST /api/bms-models
-router.post("/", async (req, res, next) => {
+// POST /api/bms-models — hanya admin (halaman BMS Models di frontend admin-only)
+router.post("/", protect, isAdmin, async (req, res, next) => {
   try {
     const model = await BmsModel.create({ model_name: req.body.model_name });
     res.status(201).json(model);
@@ -32,8 +34,8 @@ router.post("/", async (req, res, next) => {
   }
 });
 
-// PUT /api/bms-models/:id
-router.put("/:id", async (req, res, next) => {
+// PUT /api/bms-models/:id — hanya admin
+router.put("/:id", protect, isAdmin, async (req, res, next) => {
   try {
     const model = await BmsModel.findByIdAndUpdate(
       req.params.id,
@@ -53,8 +55,8 @@ router.put("/:id", async (req, res, next) => {
   }
 });
 
-// DELETE /api/bms-models/:id
-router.delete("/:id", async (req, res, next) => {
+// DELETE /api/bms-models/:id — hanya admin
+router.delete("/:id", protect, isAdmin, async (req, res, next) => {
   try {
     const model = await BmsModel.findByIdAndDelete(req.params.id);
     if (!model) return res.status(404).json({ error: "BmsModel not found" });

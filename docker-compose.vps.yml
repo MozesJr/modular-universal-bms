@@ -50,15 +50,15 @@ services:
       - bms_network
       - master_db_net   # Join ke network master DB agar bisa reach master_mongodb
 
-  # ─── 3. Frontend — Vue.js via Nginx ──────────────────────
+  # ─── 3. Frontend — React (Vite) via Nginx ─────────────────
   frontend:
     build:
-      context: ./frontend
+      context: ./new-frontend
       dockerfile: Dockerfile
     container_name: bms_frontend
     restart: unless-stopped
     ports:
-      - "8282:80"   # Host 8282 → Container 80 (Nginx)
+      - "8282:80"   # Host 8282 → Container 80 (Nginx serves React app + proxies /api & /socket.io to backend)
     depends_on:
       - backend
     networks:
