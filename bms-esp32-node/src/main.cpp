@@ -15,14 +15,19 @@
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// ==================== PILIH MODE KOMUNIKASI ====================
-const bool USE_LORA = false;
-
+// ==================== MODE KOMUNIKASI (OTOMATIS) ====================
+// Tidak lagi hardcoded. Sistem akan mencoba WiFi dulu sebagai mode utama.
+// Kalau WiFi gagal konek / putus terlalu lama, otomatis fallback ke LoRa.
+// Kalau sedang di LoRa, sistem tetap mencoba reconnect WiFi secara berkala
+// di background, dan otomatis kembali ke WiFi kalau berhasil.
 enum CommMode { MODE_WIFI, MODE_LORA };
+CommMode currentMode = MODE_WIFI; // preferensi awal: WiFi
 
-CommMode getActiveMode() {
-    return USE_LORA ? MODE_LORA : MODE_WIFI;
-}
+bool loraAvailable = false;         // true kalau modul LoRa berhasil di-init
+unsigned long wifiDownSince = 0;    // kapan WiFi mulai terputus
+const unsigned long WIFI_FALLBACK_GRACE_MS = 8000;   // toleransi sebelum fallback ke LoRa
+unsigned long lastWifiRetryAttempt = 0;
+const unsigned long WIFI_RETRY_INTERVAL_MS = 20000;  // seberapa sering coba balik ke WiFi saat di mode LoRa
 
 const char* modeLabel(CommMode m) {
     return m == MODE_LORA ? "LoRa" : "WiFi";
@@ -127,11 +132,11 @@ DallasTemperature tempSensors(&oneWire);
 float temp1C = 0;
 float temp2C = 0;
 int deviceCount = 0;
-const int cellTempIndex[] = {0, 0, 0, 1, 1, 1};
+
+// 4 cell dibagi 2:2 ke 2 sensor suhu (cell 1-2 -> sensor 0, cell 3-4 -> sensor 1)
+const int cellTempIndex[] = {0, 0, 1, 1};
 
 // ==================== KONFIGURASI WIFI & MQTT ====================
-// const char* WIFI_SSID     = "punyaSiapa";
-// const char* WIFI_PASSWORD = "113333555555";
 const char* WIFI_SSID     = "403 Forbidden";
 const char* WIFI_PASSWORD = "nanonano123";
 
@@ -158,17 +163,39 @@ unsigned long lastPublish = 0;
 const unsigned long PUBLISH_INTERVAL = 2000;
 const int LORA_INTER_PACKET_DELAY_MS = 150;
 
-// ==================== KONFIGURASI PIN ADC (VOLTAGE DIVIDER) ====================
-const int CELL_PINS[] = {36, 39, 34, 35, 32, 33};
+// ==================== KONFIGURASI PIN ADC (VOLTAGE DIVIDER) - 4 CELL ====================
+const int CELL_PINS[] = {36, 39, 34, 35};
 const int NUM_CELLS = sizeof(CELL_PINS) / sizeof(CELL_PINS[0]);
 
+// Rasio divider teoritis per titik pengukuran kumulatif (node 1..4 dari stack).
+// Ini titik awal berdasar desain resistor divider kamu.
 const float DIVIDER_RATIOS[] = {
     3.695,  // Cell 1 (GPIO36)
     3.659,  // Cell 2 (GPIO39)
     3.698,  // Cell 3 (GPIO34)
-    3.974,  // Cell 4 (GPIO35)
-    6.6,  // Cell 5 (GPIO32)
-    6.5   // Cell 6 (GPIO33)
+    3.974   // Cell 4 (GPIO35)
+};
+
+// ---- KALIBRASI PER CELL ----
+// Rasio divider di atas itu nilai teoritis/awal. Karena toleransi resistor,
+// biasanya hasil pembacaan masih meleset sedikit dari multimeter.
+// CALIBRATION_FACTOR adalah faktor koreksi terakhir: factor = V_multimeter / V_hasil_firmware
+//
+// CARA KALIBRASI:
+//   1. Upload firmware ini dulu dengan semua factor = 1.0 (kondisi default di bawah).
+//   2. Buka Serial Monitor, catat tegangan tiap cell yang tercetak (V_raw).
+//   3. Ukur tegangan tiap cell SATU PER SATU langsung dengan multimeter
+//      (colok langsung ke terminal + dan - fisik cell tsb, bukan tegangan total pack).
+//   4. Hitung factor per cell = V_multimeter / V_raw
+//      Misal: V_raw Cell1 = 3.05V, multimeter menunjukkan 2.95V
+//             -> factor Cell1 = 2.95 / 3.05 = 0.967
+//   5. Masukkan hasilnya ke array CALIBRATION_FACTOR di bawah, lalu upload ulang.
+//   6. Ulangi sekali lagi untuk verifikasi -- biasanya cukup 1-2 iterasi.
+const float CALIBRATION_FACTOR[] = {
+    1.0,  // Cell 1 -- ganti setelah kalibrasi
+    1.0,  // Cell 2 -- ganti setelah kalibrasi
+    1.0,  // Cell 3 -- ganti setelah kalibrasi
+    1.0   // Cell 4 -- ganti setelah kalibrasi
 };
 
 const int SAMPLES = 32;
@@ -198,7 +225,8 @@ void readAllCellVoltages() {
         // besar wiring/kontak longgar (pin floating), BUKAN data asli.
         // Pertahankan nilai valid terakhir daripada kirim sampah ke dashboard.
         if (newCellVoltage >= -0.05 && newCellVoltage <= 4.2) {
-            cellVoltage[i] = newCellVoltage;
+            // Terapkan faktor kalibrasi supaya cocok dengan hasil multimeter
+            cellVoltage[i] = newCellVoltage * CALIBRATION_FACTOR[i];
         } else {
             Serial.printf("PERINGATAN: Cell %d reading %.3fV di luar rentang wajar -- dipertahankan nilai lama %.3fV. Cek wiring!\n",
                           i + 1, newCellVoltage, cellVoltage[i]);
@@ -251,21 +279,6 @@ float tempForCell(int cellIndex) {
 }
 
 // ==================== WIFI & MQTT ====================
-void connectWiFi() {
-    Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    unsigned long start = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
-        delay(500);
-        Serial.print(".");
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
-    } else {
-        Serial.println("\nWiFi belum konek dalam 15 detik, lanjut coba di loop berikutnya.");
-    }
-}
-
 bool connectMQTT() {
     if (mqttClient.connected()) return true;
     Serial.print("Connecting to MQTT broker...");
@@ -279,6 +292,72 @@ bool connectMQTT() {
     }
 }
 
+// Coba konek WiFi dengan timeout. Dipakai baik saat boot maupun saat retry
+// berkala ketika sedang berada di mode LoRa.
+bool attemptWiFiConnect(unsigned long timeoutMs) {
+    Serial.printf("Connecting to WiFi: %s\n", WIFI_SSID);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    unsigned long start = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - start < timeoutMs) {
+        delay(300);
+        Serial.print(".");
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("\nWiFi connected, IP: " + WiFi.localIP().toString());
+        mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+        connectMQTT();
+        return true;
+    }
+    Serial.println("\nWiFi belum konek.");
+    return false;
+}
+
+// Dipanggil terus-menerus di loop() untuk menjaga mode komunikasi tetap
+// optimal: pakai WiFi kalau bisa, otomatis pindah ke LoRa kalau tidak bisa,
+// dan otomatis balik ke WiFi begitu sinyalnya ada lagi.
+void manageCommMode() {
+    unsigned long now = millis();
+
+    if (currentMode == MODE_WIFI) {
+        if (WiFi.status() == WL_CONNECTED) {
+            wifiDownSince = 0; // reset penanda putus
+            if (!mqttClient.connected()) connectMQTT();
+            mqttClient.loop();
+        } else {
+            if (wifiDownSince == 0) wifiDownSince = now;
+
+            // beri toleransi sebentar sebelum benar-benar fallback,
+            // supaya tidak lompat-lompat mode saat WiFi cuma sekejap putus
+            if (now - wifiDownSince > WIFI_FALLBACK_GRACE_MS) {
+                if (loraAvailable) {
+                    Serial.println("=== WiFi tidak tersedia > grace period, FALLBACK ke LoRa ===");
+                    currentMode = MODE_LORA;
+                    lastWifiRetryAttempt = now;
+                } else {
+                    // tidak ada LoRa sebagai cadangan, tetap coba WiFi lagi
+                    WiFi.disconnect();
+                    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+                    wifiDownSince = now;
+                }
+            }
+        }
+    } else { // currentMode == MODE_LORA
+        // Sambil kirim data lewat LoRa, coba diam-diam reconnect WiFi
+        // secara berkala. Kalau berhasil, pindah balik ke WiFi.
+        if (now - lastWifiRetryAttempt > WIFI_RETRY_INTERVAL_MS) {
+            lastWifiRetryAttempt = now;
+            Serial.println("=== Mencoba reconnect WiFi di background... ===");
+            if (attemptWiFiConnect(4000)) {
+                Serial.println("=== WiFi kembali tersedia, BALIK ke mode WiFi ===");
+                currentMode = MODE_WIFI;
+                wifiDownSince = 0;
+            } else {
+                WiFi.disconnect(true); // hemat daya, lanjut full di LoRa
+            }
+        }
+    }
+}
+
 const char* determineState(float voltage, float temperature) {
     if (temperature > 55.0) return "fault";
     if (voltage < 2.5) return "undervoltage";
@@ -287,7 +366,12 @@ const char* determineState(float voltage, float temperature) {
 }
 
 void sendCellData(const char* topic, const char* payload) {
-    if (getActiveMode() == MODE_LORA) {
+    if (currentMode == MODE_LORA) {
+        if (!loraAvailable) {
+            // LoRa tidak tersedia sama sekali -> simpan ke buffer SD saja
+            bufferToSD(topic, payload);
+            return;
+        }
         LoRa.beginPacket();
         LoRa.print(topic);
         LoRa.print("|");
@@ -314,7 +398,7 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
     doc["temperature"] = round(temperature * 10) / 10.0;
     doc["pack_temp"] = round(packTempMax * 10) / 10.0;
     doc["state"] = state;
-    doc["channel"] = modeLabel(getActiveMode());
+    doc["channel"] = modeLabel(currentMode);
 
     char payload[160];
     serializeJson(doc, payload);
@@ -324,7 +408,7 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
 
     sendCellData(topic, payload);
     Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s\n",
-                  topic, modeLabel(getActiveMode()), voltage, temperature, state, payload);
+                  topic, modeLabel(currentMode), voltage, temperature, state, payload);
 }
 
 void setup() {
@@ -334,7 +418,7 @@ void setup() {
     for (int i = 0; i < NUM_CELLS; i++) {
         analogSetPinAttenuation(CELL_PINS[i], ADC_11db);
     }
-    Serial.printf("Battery Monitor %dS - Mode: %s\n", NUM_CELLS, modeLabel(getActiveMode()));
+    Serial.printf("Battery Monitor %dS - mode komunikasi otomatis (WiFi utama, LoRa cadangan)\n", NUM_CELLS);
 
     tempSensors.begin();
     deviceCount = tempSensors.getDeviceCount();
@@ -357,29 +441,33 @@ void setup() {
     SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
     initSDCard();
 
-    if (getActiveMode() == MODE_LORA) {
-        LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
-        if (!LoRa.begin(LORA_FREQUENCY)) {
-            Serial.println("Gagal inisialisasi modul LoRa! Cek wiring.");
-            while (true) delay(1000);
-        }
-        Serial.println("LoRa siap, mode pengiriman: point-to-point ke gateway.");
+    // LoRa SELALU diinisialisasi di awal supaya siap jadi jalur cadangan
+    // kapan saja, tanpa perlu reboot device.
+    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+    if (!LoRa.begin(LORA_FREQUENCY)) {
+        Serial.println("PERINGATAN: Modul LoRa gagal init! Fallback LoRa TIDAK akan tersedia -- cek wiring modul LoRa.");
+        loraAvailable = false;
     } else {
-        connectWiFi();
-        mqttClient.setServer(MQTT_HOST, MQTT_PORT);
-        if (WiFi.status() == WL_CONNECTED) connectMQTT();
+        loraAvailable = true;
+        Serial.println("LoRa siap sebagai jalur komunikasi cadangan.");
+    }
+
+    // Coba WiFi dulu sebagai mode utama. Kalau gagal, langsung fallback ke LoRa.
+    if (attemptWiFiConnect(15000)) {
+        currentMode = MODE_WIFI;
+    } else if (loraAvailable) {
+        Serial.println("=== WiFi gagal saat boot, langsung mulai di mode LoRa ===");
+        currentMode = MODE_LORA;
+        lastWifiRetryAttempt = millis();
+    } else {
+        Serial.println("=== WiFi gagal dan LoRa tidak tersedia -- data akan dibuffer ke SD sampai salah satu jalur siap ===");
+        currentMode = MODE_WIFI; // tetap set WiFi, manageCommMode() akan terus retry
+        wifiDownSince = millis();
     }
 }
 
 void loop() {
-    if (getActiveMode() == MODE_WIFI) {
-        if (WiFi.status() != WL_CONNECTED) {
-            connectWiFi();
-        } else if (!mqttClient.connected()) {
-            connectMQTT();
-        }
-        mqttClient.loop();
-    }
+    manageCommMode();
 
     readAllCellVoltages();
     readTemperatures();
@@ -395,7 +483,7 @@ void loop() {
     }
     Serial.printf("Total  : %.3f V | SoC rata-rata: %.0f%%\n", cumulativeVoltage[NUM_CELLS - 1], socAvg);
     Serial.printf("Mode   : %s | SD: %s | Buffer pending: %s\n",
-                  modeLabel(getActiveMode()),
+                  modeLabel(currentMode),
                   sdReady ? "OK" : "tidak ada",
                   hasBufferedData() ? "ADA" : "kosong");
 
@@ -404,19 +492,17 @@ void loop() {
     oled.setTextColor(WHITE);
 
     oled.setCursor(0, 0);
-    oled.printf("Mode:%s SD:%s%s", modeLabel(getActiveMode()),
+    oled.printf("Mode:%s SD:%s%s", modeLabel(currentMode),
                 sdReady ? "OK" : "-",
                 hasBufferedData() ? "*" : "");
 
-    oled.setCursor(0, 10);
+    oled.setCursor(0, 12);
     oled.printf("Cap:%.0f%% Tot:%.2fV", socAvg, cumulativeVoltage[NUM_CELLS - 1]);
 
-    oled.setCursor(0, 24);
-    oled.printf("C1:%.2f C4:%.2f", cellVoltage[0], cellVoltage[3]);
-    oled.setCursor(0, 36);
-    oled.printf("C2:%.2f C5:%.2f", cellVoltage[1], cellVoltage[4]);
-    oled.setCursor(0, 48);
-    oled.printf("C3:%.2f C6:%.2f", cellVoltage[2], cellVoltage[5]);
+    oled.setCursor(0, 28);
+    oled.printf("C1:%.2f  C2:%.2f", cellVoltage[0], cellVoltage[1]);
+    oled.setCursor(0, 40);
+    oled.printf("C3:%.2f  C4:%.2f", cellVoltage[2], cellVoltage[3]);
 
     oled.display();
 
@@ -425,7 +511,7 @@ void loop() {
         lastPublish = now;
         for (int i = 0; i < NUM_CELLS; i++) {
             publishCell(i + 1, cellVoltage[i], tempForCell(i), packTempMax);
-            if (getActiveMode() == MODE_LORA) {
+            if (currentMode == MODE_LORA) {
                 delay(LORA_INTER_PACKET_DELAY_MS);
             }
         }
