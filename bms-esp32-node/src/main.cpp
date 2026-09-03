@@ -33,6 +33,15 @@ const char* modeLabel(CommMode m) {
     return m == MODE_LORA ? "LoRa" : "WiFi";
 }
 
+// Retry berkala untuk hardware yang gagal terdeteksi saat boot (SD card & LoRa).
+// Tanpa ini, kalau gagal sekali di setup(), device nggak akan pernah coba lagi
+// sampai di-restart manual -- padahal masalahnya bisa cuma telat settle pas nyala.
+unsigned long lastSDRetry = 0;
+const unsigned long SD_RETRY_INTERVAL_MS = 10000;
+
+unsigned long lastLoRaRetry = 0;
+const unsigned long LORA_RETRY_INTERVAL_MS = 10000;
+
 // ==================== KONFIGURASI SD CARD (hybrid local storage) ====================
 #define SD_CS 13
 #define BUFFER_FILE "/buffer.log"
@@ -140,7 +149,7 @@ const int cellTempIndex[] = {0, 0, 1, 1};
 const char* WIFI_SSID     = "403 Forbidden";
 const char* WIFI_PASSWORD = "nanonano123";
 
-const char* MQTT_HOST      = "148.230.97.68";
+const char* MQTT_HOST      = "72.61.208.150";
 const int   MQTT_PORT      = 1885;
 const char* MQTT_CLIENT_ID = "esp32-bms1-pack1-voltage";
 
@@ -173,7 +182,7 @@ const float DIVIDER_RATIOS[] = {
     3.695,  // Cell 1 (GPIO36)
     3.659,  // Cell 2 (GPIO39)
     3.698,  // Cell 3 (GPIO34)
-    3.750   // Cell 4 (GPIO35)
+    3.695   // Cell 4 (GPIO35)
 };
 
 // ---- KALIBRASI PER CELL ----
@@ -358,6 +367,34 @@ void manageCommMode() {
     }
 }
 
+// Dipanggil terus di loop() untuk retry deteksi SD card & LoRa secara berkala
+// kalau sebelumnya gagal (misal belum settle saat boot, kontak kurang pas, dst).
+// Begitu terdeteksi, status langsung dipakai (SD siap dipakai buffer, LoRa siap
+// jadi fallback) tanpa perlu restart device.
+void manageHardwareDetection() {
+    unsigned long now = millis();
+
+    if (!sdReady && now - lastSDRetry > SD_RETRY_INTERVAL_MS) {
+        lastSDRetry = now;
+        Serial.println("=== Retry deteksi SD card... ===");
+        initSDCard();
+        if (sdReady) Serial.println("=== SD card berhasil terdeteksi ===");
+    }
+
+    if (!loraAvailable && now - lastLoRaRetry > LORA_RETRY_INTERVAL_MS) {
+        lastLoRaRetry = now;
+        Serial.println("=== Retry deteksi modul LoRa... ===");
+        LoRa.end(); // bersihkan state lama sebelum coba lagi
+        LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+        if (LoRa.begin(LORA_FREQUENCY)) {
+            loraAvailable = true;
+            Serial.println("=== Modul LoRa berhasil terdeteksi ===");
+        } else {
+            Serial.println("=== LoRa masih belum terdeteksi -- cek wiring/power modul ===");
+        }
+    }
+}
+
 const char* determineState(float voltage, float temperature) {
     if (temperature > 55.0) return "fault";
     if (voltage < 2.5) return "undervoltage";
@@ -468,6 +505,7 @@ void setup() {
 
 void loop() {
     manageCommMode();
+    manageHardwareDetection();
 
     readAllCellVoltages();
     readTemperatures();
@@ -482,27 +520,42 @@ void loop() {
         Serial.printf("Cell %d : %.3f V | %.1f C\n", i + 1, cellVoltage[i], tempForCell(i));
     }
     Serial.printf("Total  : %.3f V | SoC rata-rata: %.0f%%\n", cumulativeVoltage[NUM_CELLS - 1], socAvg);
-    Serial.printf("Mode   : %s | SD: %s | Buffer pending: %s\n",
+    Serial.printf("Mode: %s | WiFi: %s | LoRa: %s | SD: %s | Buffer: %s\n",
                   modeLabel(currentMode),
-                  sdReady ? "OK" : "tidak ada",
+                  WiFi.status() == WL_CONNECTED ? "OK" : "-",
+                  loraAvailable ? "OK" : "-",
+                  sdReady ? "OK" : "-",
                   hasBufferedData() ? "ADA" : "kosong");
 
     oled.clearDisplay();
     oled.setTextSize(1);
     oled.setTextColor(WHITE);
 
+    // Baris 1: mode aktif + status koneksi WiFi
     oled.setCursor(0, 0);
-    oled.printf("Mode:%s SD:%s%s", modeLabel(currentMode),
+    oled.printf("Mode:%s WiFi:%s", modeLabel(currentMode),
+                WiFi.status() == WL_CONNECTED ? "OK" : "-");
+
+    // Baris 2: status hardware cadangan -- LoRa & SD card + tanda buffer pending
+    oled.setCursor(0, 9);
+    oled.printf("LoRa:%s SD:%s%s",
+                loraAvailable ? "OK" : "-",
                 sdReady ? "OK" : "-",
                 hasBufferedData() ? "*" : "");
 
-    oled.setCursor(0, 12);
+    // Baris 3: kapasitas & tegangan total pack
+    oled.setCursor(0, 20);
     oled.printf("Cap:%.0f%% Tot:%.2fV", socAvg, cumulativeVoltage[NUM_CELLS - 1]);
 
-    oled.setCursor(0, 28);
+    // Baris 4-5: tegangan tiap cell
+    oled.setCursor(0, 31);
     oled.printf("C1:%.2f  C2:%.2f", cellVoltage[0], cellVoltage[1]);
-    oled.setCursor(0, 40);
+    oled.setCursor(0, 42);
     oled.printf("C3:%.2f  C4:%.2f", cellVoltage[2], cellVoltage[3]);
+
+    // Baris 6: suhu dari kedua sensor DS18B20
+    oled.setCursor(0, 53);
+    oled.printf("T1:%.1fC  T2:%.1fC", temp1C, temp2C);
 
     oled.display();
 
