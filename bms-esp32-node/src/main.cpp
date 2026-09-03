@@ -149,7 +149,7 @@ const int cellTempIndex[] = {0, 0, 1, 1};
 const char* WIFI_SSID     = "403 Forbidden";
 const char* WIFI_PASSWORD = "nanonano123";
 
-const char* MQTT_HOST      = "72.61.208.150";
+const char* MQTT_HOST      = "148.230.97.68";
 const int   MQTT_PORT      = 1885;
 const char* MQTT_CLIENT_ID = "esp32-bms1-pack1-voltage";
 
