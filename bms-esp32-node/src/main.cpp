@@ -440,8 +440,12 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
     char payload[160];
     serializeJson(doc, payload);
 
+    // PENTING: format topic HARUS "bms/{pack_id}/cell/{cell_id}" (4 segmen)
+    // karena backend subscribe ke pola "bms/+/cell/+" -- wildcard "+" cuma
+    // menggantikan SATU level. Kalau ada segmen "/pack/..." di tengah,
+    // topic tidak akan pernah match dan data tidak akan pernah sampai ke DB.
     char topic[80];
-    snprintf(topic, sizeof(topic), "bms/%s/pack/%s/cell/%d", BMS_ID, PACK_ID, cellId);
+    snprintf(topic, sizeof(topic), "bms/%s/cell/%d", PACK_ID, cellId);
 
     sendCellData(topic, payload);
     Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s\n",
