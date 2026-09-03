@@ -17,6 +17,6 @@ jobs:
           script: |
             cd /home/modular-universal-bms
             git pull origin main
-            docker compose down
-            docker compose up -d --build
+            docker compose -f docker-compose.vps.yml down
+            docker compose -f docker-compose.vps.yml up -d --build
             docker image prune -f
