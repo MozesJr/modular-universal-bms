@@ -173,7 +173,7 @@ const float DIVIDER_RATIOS[] = {
     3.695,  // Cell 1 (GPIO36)
     3.659,  // Cell 2 (GPIO39)
     3.698,  // Cell 3 (GPIO34)
-    3.974   // Cell 4 (GPIO35)
+    3.750   // Cell 4 (GPIO35)
 };
 
 // ---- KALIBRASI PER CELL ----

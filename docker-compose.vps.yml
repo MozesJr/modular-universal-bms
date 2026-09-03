@@ -1,12 +1,32 @@
 # =============================================================
 # Modular Universal BMS — Docker Compose (VPS Production)
-# MongoDB  : pakai master_mongodb (external)
+# MongoDB  : container sendiri (bukan master_mongodb eksternal)
 # Dashboard: :8282  | Backend: :3100  | MQTT: :1885
 # =============================================================
 
 services:
 
-  # ─── 1. Mosquitto MQTT Broker ─────────────────────────────
+  # ─── 1. MongoDB ───────────────────────────────────────────
+  mongo:
+    image: mongo:7.0
+    container_name: bms_mongo
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DB_NAME}
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo/init/init.js:/docker-entrypoint-initdb.d/init.js:ro
+    networks:
+      - bms_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── 2. Mosquitto MQTT Broker ─────────────────────────────
   mosquitto:
     image: eclipse-mosquitto:2.0
     container_name: bms_mosquitto
@@ -26,7 +46,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # ─── 2. Backend — Node.js + Express ──────────────────────
+  # ─── 3. Backend — Node.js + Express ──────────────────────
   backend:
     build:
       context: ./backend
@@ -36,21 +56,21 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-production}
       PORT: 3000
-      # Connect ke master_mongodb via container name (shared network)
-      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@master_mongodb:27017/${MONGO_DB_NAME}?authSource=admin
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/${MONGO_DB_NAME}?authSource=admin
       MQTT_BROKER_URL: mqtt://mosquitto:1883
       MQTT_TOPIC_PREFIX: ${MQTT_TOPIC_PREFIX:-bms}
       JWT_SECRET: ${JWT_SECRET}
     ports:
       - "3100:3000"   # Host 3100 → Container 3000
     depends_on:
+      mongo:
+        condition: service_healthy
       mosquitto:
         condition: service_healthy
     networks:
       - bms_network
-      - master_db_net   # Join ke network master DB agar bisa reach master_mongodb
 
-  # ─── 3. Frontend — React (Vite) via Nginx ─────────────────
+  # ─── 4. Frontend — React (Vite) via Nginx ─────────────────
   frontend:
     build:
       context: ./new-frontend
@@ -58,7 +78,7 @@ services:
     container_name: bms_frontend
     restart: unless-stopped
     ports:
-      - "8282:80"   # Host 8282 → Container 80 (Nginx serves React app + proxies /api & /socket.io to backend)
+      - "8080:80"   # Host 8282 → Container 80 (Nginx serves React app + proxies /api & /socket.io to backend)
     depends_on:
       - backend
     networks:
@@ -66,6 +86,8 @@ services:
 
 # ─── Volumes ──────────────────────────────────────────────
 volumes:
+  mongo_data:
+    driver: local
   mosquitto_data:
     driver: local
   mosquitto_log:
@@ -75,8 +97,3 @@ volumes:
 networks:
   bms_network:
     driver: bridge
-
-  # Join ke network master DB yang sudah ada (external)
-  master_db_net:
-    external: true
-    name: master_db_net
