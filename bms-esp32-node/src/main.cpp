@@ -180,8 +180,8 @@ const int NUM_CELLS = sizeof(CELL_PINS) / sizeof(CELL_PINS[0]);
 // Ini titik awal berdasar desain resistor divider kamu.
 const float DIVIDER_RATIOS[] = {
     3.695,  // Cell 1 (GPIO36)
-    3.659,  // Cell 2 (GPIO39)
-    3.698,  // Cell 3 (GPIO34)
+    3.695,  // Cell 2 (GPIO39)
+    3.695,  // Cell 3 (GPIO34)
     3.695   // Cell 4 (GPIO35)
 };
 
