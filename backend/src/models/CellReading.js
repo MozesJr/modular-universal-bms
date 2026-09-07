@@ -5,7 +5,15 @@
  */
 "use strict";
 const mongoose = require("mongoose");
-const BMS_STATE = ["normal", "charging", "discharging", "fault", "standby"];
+const BMS_STATE = [
+  "normal",
+  "charging",
+  "discharging",
+  "fault",
+  "standby",
+  "undervoltage",
+  "overvoltage",
+];
 const cellReadingSchema = new mongoose.Schema(
   {
     timestamp: {

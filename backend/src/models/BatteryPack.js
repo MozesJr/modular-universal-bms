@@ -14,7 +14,15 @@
 const mongoose = require("mongoose");
 
 const CELL_CHEMISTRY = ["LiFePO4", "Li-ion 18650", "NMC", "LCO", "Custom"];
-const BMS_STATE = ["normal", "charging", "discharging", "fault", "standby"];
+const BMS_STATE = [
+  "normal",
+  "charging",
+  "discharging",
+  "fault",
+  "standby",
+  "undervoltage",
+  "overvoltage",
+];
 
 // Sub-schema: sel individual (mapping tabel `cell`)
 const cellSchema = new mongoose.Schema(

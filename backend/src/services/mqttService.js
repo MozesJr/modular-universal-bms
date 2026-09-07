@@ -192,13 +192,12 @@ function initMQTT(io) {
       await Pack.updateOne({ pack_id }, packUpdate);
       if (packUpdate.state) invalidatePackCache(pack_id);
 
-      // ── Live alerts (buat widget real-time) BEDA dari alertTypes yang
-      // dipakai buat AlertLog di bawah — "imbalance" tampil terus selama
-      // kondisinya masih berlangsung, tapi cuma di-LOG sekali (di atas,
-      // saat transisi) supaya AlertLog nggak kebanjiran entry tiap 2 detik.
-      const liveAlerts = isImbalanced
-        ? [...alertTypes, "imbalance"]
-        : alertTypes;
+      // "imbalance" adalah kondisi level PACK (selisih voltage antar semua
+      // cell), bukan punya cell tertentu yang kebetulan mengirim pesan ini —
+      // jangan digabung ke `alerts` per-cell atau semua card ikut merah
+      // walau reading cell itu sendiri aman. UI level-pack pakai
+      // `pack_imbalanced` / `pack_voltage_delta_mv` (sudah ada di event).
+      const liveAlerts = alertTypes;
 
       // ── Emit real-time ke frontend ─────────────────────────
       const event = {
