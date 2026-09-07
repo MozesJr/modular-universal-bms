@@ -21,7 +21,7 @@ Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 // Kalau sedang di LoRa, sistem tetap mencoba reconnect WiFi secara berkala
 // di background, dan otomatis kembali ke WiFi kalau berhasil.
 enum CommMode { MODE_WIFI, MODE_LORA };
-CommMode currentMode = MODE_WIFI; // preferensi awal: WiFi
+CommMode currentMode = MODE_LORA; // preferensi awal: WiFi
 
 bool loraAvailable = false;         // true kalau modul LoRa berhasil di-init
 unsigned long wifiDownSince = 0;    // kapan WiFi mulai terputus
@@ -146,10 +146,10 @@ int deviceCount = 0;
 const int cellTempIndex[] = {0, 0, 1, 1};
 
 // ==================== KONFIGURASI WIFI & MQTT ====================
-const char* WIFI_SSID     = "403 Forbidden";
+const char* WIFI_SSID     = "403 Forbidden1";
 const char* WIFI_PASSWORD = "nanonano123";
 
-const char* MQTT_HOST      = "148.230.97.68";
+const char* MQTT_HOST      = "72.61.208.150";
 const int   MQTT_PORT      = 1885;
 const char* MQTT_CLIENT_ID = "esp32-bms1-pack1-voltage";
 
@@ -440,12 +440,12 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
     char payload[160];
     serializeJson(doc, payload);
 
-    // PENTING: format topic HARUS "bms/{pack_id}/cell/{cell_id}" (4 segmen)
-    // karena backend subscribe ke pola "bms/+/cell/+" -- wildcard "+" cuma
-    // menggantikan SATU level. Kalau ada segmen "/pack/..." di tengah,
-    // topic tidak akan pernah match dan data tidak akan pernah sampai ke DB.
+    // PENTING: backend subscribe ke pola "bms/+/pack/+/cell/+" (5 segmen,
+    // termasuk bms_id) -- BUKAN "bms/{pack_id}/cell/{cell_id}" seperti
+    // yang sempat saya sarankan salah sebelumnya. Format ini WAJIB
+    // menyertakan BMS_ID supaya match pola subscribe backend.
     char topic[80];
-    snprintf(topic, sizeof(topic), "bms/%s/cell/%d", PACK_ID, cellId);
+    snprintf(topic, sizeof(topic), "bms/%s/pack/%s/cell/%d", BMS_ID, PACK_ID, cellId);
 
     sendCellData(topic, payload);
     Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s\n",
