@@ -21,7 +21,7 @@ Adafruit_SSD1306 oled(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 // Kalau sedang di LoRa, sistem tetap mencoba reconnect WiFi secara berkala
 // di background, dan otomatis kembali ke WiFi kalau berhasil.
 enum CommMode { MODE_WIFI, MODE_LORA };
-CommMode currentMode = MODE_LORA; // preferensi awal: WiFi
+CommMode currentMode = MODE_WIFI; // preferensi awal: WiFi
 
 bool loraAvailable = false;         // true kalau modul LoRa berhasil di-init
 unsigned long wifiDownSince = 0;    // kapan WiFi mulai terputus
@@ -41,6 +41,17 @@ const unsigned long SD_RETRY_INTERVAL_MS = 10000;
 
 unsigned long lastLoRaRetry = 0;
 const unsigned long LORA_RETRY_INTERVAL_MS = 10000;
+
+// ==================== STATUS PENGIRIMAN DATA (untuk indikator di OLED) ====================
+// Ini beda dari status koneksi (WiFi/LoRa/SD OK atau tidak) -- ini nge-track
+// apakah data BENERAN berhasil terkirim keluar (MQTT publish sukses / LoRa
+// terkirim), bukan cuma "koneksinya nyambung". WiFi bisa connected tapi
+// MQTT publish tetap gagal, jadi ini indikator yang lebih jujur soal
+// "datanya masuk apa nggak".
+int lastCycleSendOk = 0;                 // dari NUM_CELLS, berapa yang berhasil terkirim di cycle terakhir
+int lastCycleSendFail = 0;               // berapa yang gagal (dibuffer ke SD) di cycle terakhir
+unsigned long lastSuccessfulSendMillis = 0; // millis() saat terakhir kali ADA minimal 1 cell yang beneran terkirim
+bool everSentSuccessfully = false;       // belum pernah sukses kirim sama sekali sejak boot?
 
 // ==================== KONFIGURASI SD CARD (hybrid local storage) ====================
 #define SD_CS 13
@@ -146,7 +157,7 @@ int deviceCount = 0;
 const int cellTempIndex[] = {0, 0, 1, 1};
 
 // ==================== KONFIGURASI WIFI & MQTT ====================
-const char* WIFI_SSID     = "403 Forbidden1";
+const char* WIFI_SSID     = "403 Forbidden";
 const char* WIFI_PASSWORD = "nanonano123";
 
 const char* MQTT_HOST      = "72.61.208.150";
@@ -179,10 +190,10 @@ const int NUM_CELLS = sizeof(CELL_PINS) / sizeof(CELL_PINS[0]);
 // Rasio divider teoritis per titik pengukuran kumulatif (node 1..4 dari stack).
 // Ini titik awal berdasar desain resistor divider kamu.
 const float DIVIDER_RATIOS[] = {
-    3.695,  // Cell 1 (GPIO36)
-    3.695,  // Cell 2 (GPIO39)
-    3.695,  // Cell 3 (GPIO34)
-    3.695   // Cell 4 (GPIO35)
+    3.795,  // Cell 1 (GPIO36)
+    3.795,  // Cell 2 (GPIO39)
+    3.805,  // Cell 3 (GPIO34)
+    3.815   // Cell 4 (GPIO35)
 };
 
 // ---- KALIBRASI PER CELL ----
@@ -201,10 +212,10 @@ const float DIVIDER_RATIOS[] = {
 //   5. Masukkan hasilnya ke array CALIBRATION_FACTOR di bawah, lalu upload ulang.
 //   6. Ulangi sekali lagi untuk verifikasi -- biasanya cukup 1-2 iterasi.
 const float CALIBRATION_FACTOR[] = {
-    1.0,  // Cell 1 -- ganti setelah kalibrasi
-    1.0,  // Cell 2 -- ganti setelah kalibrasi
-    1.0,  // Cell 3 -- ganti setelah kalibrasi
-    1.0   // Cell 4 -- ganti setelah kalibrasi
+    0.963,  // Cell 1
+    0.972,  // Cell 2
+    0.984,  // Cell 3
+    1.314   // Cell 4
 };
 
 const int SAMPLES = 32;
@@ -402,19 +413,22 @@ const char* determineState(float voltage, float temperature) {
     return "discharging";
 }
 
-void sendCellData(const char* topic, const char* payload) {
+// Sekarang return bool: true kalau data BENERAN terkirim keluar (MQTT publish
+// sukses / LoRa terkirim), false kalau gagal dan cuma sempat dibuffer ke SD.
+// Ini yang dipakai buat indikator "datanya masuk atau nggak" di OLED.
+bool sendCellData(const char* topic, const char* payload) {
     if (currentMode == MODE_LORA) {
         if (!loraAvailable) {
             // LoRa tidak tersedia sama sekali -> simpan ke buffer SD saja
             bufferToSD(topic, payload);
-            return;
+            return false;
         }
         LoRa.beginPacket();
         LoRa.print(topic);
         LoRa.print("|");
         LoRa.print(payload);
         LoRa.endPacket();
-        return;
+        return true;
     }
 
     if (WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
@@ -423,12 +437,16 @@ void sendCellData(const char* topic, const char* payload) {
             Serial.println("  -> publish MQTT gagal walau connected, simpan ke buffer SD.");
             bufferToSD(topic, payload);
         }
+        return ok;
     } else {
         bufferToSD(topic, payload);
+        return false;
     }
 }
 
-void publishCell(int cellId, float voltage, float temperature, float packTempMax) {
+// Sekarang return bool, hasil dari sendCellData(), supaya loop() bisa
+// menghitung berapa cell yang beneran berhasil terkirim di cycle ini.
+bool publishCell(int cellId, float voltage, float temperature, float packTempMax) {
     const char* state = determineState(voltage, temperature);
     JsonDocument doc;
     doc["voltage"] = round(voltage * 1000) / 1000.0;
@@ -447,9 +465,11 @@ void publishCell(int cellId, float voltage, float temperature, float packTempMax
     char topic[80];
     snprintf(topic, sizeof(topic), "bms/%s/pack/%s/cell/%d", BMS_ID, PACK_ID, cellId);
 
-    sendCellData(topic, payload);
-    Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s\n",
-                  topic, modeLabel(currentMode), voltage, temperature, state, payload);
+    bool sent = sendCellData(topic, payload);
+    Serial.printf("[%s via %s] V:%.3f T:%.1f state:%s -> %s (%s)\n",
+                  topic, modeLabel(currentMode), voltage, temperature, state, payload,
+                  sent ? "TERKIRIM" : "GAGAL/BUFFER");
+    return sent;
 }
 
 void setup() {
@@ -524,25 +544,69 @@ void loop() {
         Serial.printf("Cell %d : %.3f V | %.1f C\n", i + 1, cellVoltage[i], tempForCell(i));
     }
     Serial.printf("Total  : %.3f V | SoC rata-rata: %.0f%%\n", cumulativeVoltage[NUM_CELLS - 1], socAvg);
-    Serial.printf("Mode: %s | WiFi: %s | LoRa: %s | SD: %s | Buffer: %s\n",
+    Serial.printf("Mode: %s | WiFi: %s | LoRa: %s | SD: %s | Buffer: %s | Data cycle terakhir: %d/%d OK\n",
                   modeLabel(currentMode),
                   WiFi.status() == WL_CONNECTED ? "OK" : "-",
                   loraAvailable ? "OK" : "-",
                   sdReady ? "OK" : "-",
-                  hasBufferedData() ? "ADA" : "kosong");
+                  hasBufferedData() ? "ADA" : "kosong",
+                  lastCycleSendOk, NUM_CELLS);
 
+    unsigned long now = millis();
+
+    // ---- Kirim data (hanya tiap PUBLISH_INTERVAL) & update status pengiriman ----
+    if (now - lastPublish >= PUBLISH_INTERVAL) {
+        lastPublish = now;
+        int okCount = 0;
+        int failCount = 0;
+        for (int i = 0; i < NUM_CELLS; i++) {
+            bool sent = publishCell(i + 1, cellVoltage[i], tempForCell(i), packTempMax);
+            if (sent) okCount++; else failCount++;
+            if (currentMode == MODE_LORA) {
+                delay(LORA_INTER_PACKET_DELAY_MS);
+            }
+        }
+        lastCycleSendOk = okCount;
+        lastCycleSendFail = failCount;
+        if (okCount > 0) {
+            lastSuccessfulSendMillis = now;
+            everSentSuccessfully = true;
+        }
+    }
+
+    // ---- Tampilan OLED ----
     oled.clearDisplay();
     oled.setTextSize(1);
     oled.setTextColor(WHITE);
 
-    // Baris 1: mode aktif + status koneksi WiFi
+    // Baris 1: STATUS DATA -- ini yang jawab "datanya masuk atau nggak".
+    // D:OK    -> semua cell di cycle terakhir berhasil terkirim
+    // D:SBG   -> sebagian berhasil, sebagian gagal (masuk buffer)
+    // D:GAGAL -> cycle terakhir semuanya gagal terkirim
+    // D:blm   -> belum pernah sukses kirim sejak boot
+    // Angka di belakang = sudah berapa detik sejak TERAKHIR KALI sukses kirim.
     oled.setCursor(0, 0);
-    oled.printf("Mode:%s WiFi:%s", modeLabel(currentMode),
-                WiFi.status() == WL_CONNECTED ? "OK" : "-");
+    const char* dataStatus;
+    if (!everSentSuccessfully) {
+        dataStatus = "blm";
+    } else if (lastCycleSendFail == 0) {
+        dataStatus = "OK";
+    } else if (lastCycleSendOk > 0) {
+        dataStatus = "SBG";
+    } else {
+        dataStatus = "GAGAL";
+    }
+    if (everSentSuccessfully) {
+        unsigned long secsSinceOk = (now - lastSuccessfulSendMillis) / 1000;
+        oled.printf("M:%s D:%s %lus", modeLabel(currentMode), dataStatus, secsSinceOk);
+    } else {
+        oled.printf("M:%s D:%s", modeLabel(currentMode), dataStatus);
+    }
 
-    // Baris 2: status hardware cadangan -- LoRa & SD card + tanda buffer pending
+    // Baris 2: ringkasan status hardware/koneksi (WiFi/LoRa/SD + tanda buffer pending)
     oled.setCursor(0, 9);
-    oled.printf("LoRa:%s SD:%s%s",
+    oled.printf("W:%s L:%s SD:%s%s",
+                WiFi.status() == WL_CONNECTED ? "OK" : "-",
                 loraAvailable ? "OK" : "-",
                 sdReady ? "OK" : "-",
                 hasBufferedData() ? "*" : "");
@@ -562,17 +626,6 @@ void loop() {
     oled.printf("T1:%.1fC  T2:%.1fC", temp1C, temp2C);
 
     oled.display();
-
-    unsigned long now = millis();
-    if (now - lastPublish >= PUBLISH_INTERVAL) {
-        lastPublish = now;
-        for (int i = 0; i < NUM_CELLS; i++) {
-            publishCell(i + 1, cellVoltage[i], tempForCell(i), packTempMax);
-            if (currentMode == MODE_LORA) {
-                delay(LORA_INTER_PACKET_DELAY_MS);
-            }
-        }
-    }
 
     delay(1000);
 }
