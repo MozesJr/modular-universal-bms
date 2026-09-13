@@ -6,17 +6,17 @@ import { GaugeChart, LineChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { usePack } from 'hooks/usePacks';
-import { CellUpdateEvent, ConnectionStatus, usePackRealtime } from 'hooks/usePackRealtime';
+import { CellUpdateEvent, usePackRealtime } from 'hooks/usePackRealtime';
 import { ALERT_TYPE_LABELS, AlertType } from 'services/alerts';
 import paths from 'routes/paths';
 import PageLoader from 'components/loading/PageLoader';
-import StatusChip from 'components/common/StatusChip';
-import StatCard from 'components/common/StatCard';
 import ReactEchart from 'components/base/ReactEhart';
 import BatteryVisual from './BatteryVisual';
 import PackGauges from './PackGauges';
-import PackStatusRow from './PackStatusRow';
+import PackReadoutStrip from './PackReadoutStrip';
 import CellList from './CellList';
+import AlertBanner from './AlertBanner';
+import LiveIndicator from './LiveIndicator';
 
 echarts.use([
   LineChart,
@@ -32,18 +32,6 @@ echarts.use([
 // (JSX, hook history, dsb) tetap masuk chunk terpisah dan baru diambil
 // saat user benar-benar klik salah satu cell.
 const CellHistoryDialog = lazy(() => import('./CellHistoryDialog'));
-
-const CONNECTION_LABEL: Record<ConnectionStatus, string> = {
-  connected: 'Live',
-  connecting: 'Connecting…',
-  disconnected: 'Disconnected',
-};
-
-const CONNECTION_COLOR: Record<ConnectionStatus, 'success' | 'warning' | 'error'> = {
-  connected: 'success',
-  connecting: 'warning',
-  disconnected: 'error',
-};
 
 const alertLabel = (type: string) => ALERT_TYPE_LABELS[type as AlertType] ?? type;
 
@@ -200,6 +188,37 @@ const PackDetail = () => {
   // pack's last known REST state instead of leaving the status row blank.
   const packStateLabel = latestEvent?.state ?? pack?.state ?? 'normal';
 
+  // Everything that should surface in the top-of-page alert banner.
+  // Severity is "critical" (red) if disconnected/fault/any cell alert is
+  // active; otherwise "warning" (amber) if only imbalance is active. When
+  // severity is critical, the warning-level messages ride along in the
+  // same banner rather than needing a second one.
+  const activeCellIssues = useMemo(() => {
+    const issues: string[] = [];
+    cellNumbers.forEach((cellNo) => {
+      const event = cells.get(cellNo);
+      if (event && event.alerts.length > 0) {
+        issues.push(`Cell ${cellNo}: ${event.alerts.map(alertLabel).join(', ')}`);
+      }
+    });
+    return issues;
+  }, [cellNumbers, cells]);
+
+  const criticalIssues: string[] = [];
+  if (connectionStatus === 'disconnected')
+    criticalIssues.push('Live data terputus (Disconnected).');
+  if (packStateLabel.toLowerCase() === 'fault') criticalIssues.push('Pack dalam status Fault.');
+  criticalIssues.push(...activeCellIssues);
+
+  const warningIssues: string[] = [];
+  if (packImbalanced) {
+    warningIssues.push('Pack Imbalanced — voltage antar cell tidak seimbang.');
+  }
+
+  const bannerSeverity: 'critical' | 'warning' = criticalIssues.length > 0 ? 'critical' : 'warning';
+  const bannerIssues =
+    criticalIssues.length > 0 ? [...criticalIssues, ...warningIssues] : warningIssues;
+
   const gaugeRanges = useMemo(() => {
     const maxVoltage = pack ? pack.max_voltage * pack.cell_count : 0;
     const maxCurrent = pack?.max_current_amps ?? 0;
@@ -254,7 +273,13 @@ const PackDetail = () => {
   return (
     <Stack spacing={3}>
       <Paper sx={{ p: 3 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+        <Stack
+          direction="row"
+          justifyContent="space-between"
+          alignItems="flex-start"
+          flexWrap="wrap"
+          rowGap={1.5}
+        >
           <Box>
             <Typography variant="h4" color="primary.dark">
               {pack.name}
@@ -263,12 +288,11 @@ const PackDetail = () => {
               {pack.pack_id} · {pack.chemistry} · {pack.cell_count} cells
             </Typography>
           </Box>
-          <StatusChip
-            label={CONNECTION_LABEL[connectionStatus]}
-            color={CONNECTION_COLOR[connectionStatus]}
-          />
+          <LiveIndicator status={connectionStatus} />
         </Stack>
       </Paper>
+
+      <AlertBanner severity={bannerSeverity} issues={bannerIssues} />
 
       <Grid container spacing={3}>
         <Grid item xs={12} md={4}>
@@ -286,46 +310,24 @@ const PackDetail = () => {
         </Grid>
       </Grid>
 
-      <PackStatusRow state={packStateLabel} imbalanced={packImbalanced} />
+      <PackReadoutStrip
+        state={packStateLabel}
+        imbalanced={packImbalanced}
+        avgCellVoltage={avgCellVoltage}
+        cellDeltaMv={cellDeltaMv}
+        cycleCount={pack.cycle_count}
+        lastUpdate={lastUpdate}
+      />
 
-      <Grid container spacing={2}>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            icon="mdi:battery-outline"
-            label="Avg Cell Voltage"
-            value={avgCellVoltage != null ? `${avgCellVoltage.toFixed(3)} V` : '—'}
-          />
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            icon="mdi:swap-vertical"
-            label="Cell Delta"
-            value={cellDeltaMv != null ? `${cellDeltaMv.toFixed(1)} mV` : '—'}
-            iconColor="secondary.main"
-            iconBgColor="secondary.lighter"
-          />
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            icon="mdi:refresh"
-            label="Life Cycle"
-            value={pack.cycle_count}
-            iconColor="success.main"
-            iconBgColor="success.lighter"
-          />
-        </Grid>
-        <Grid item xs={6} sm={3}>
-          <StatCard
-            icon="mdi:clock-outline"
-            label="Last Update"
-            value={lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : '—'}
-            iconColor="warning.main"
-            iconBgColor="warning.lighter"
-          />
-        </Grid>
-      </Grid>
-
-      <Paper sx={{ p: 3 }}>
+      <Paper
+        sx={{
+          p: 3,
+          // Left accent signals data freshness at a glance, without having
+          // to look back up at the header's LiveIndicator.
+          borderLeft: '3px solid',
+          borderLeftColor: connectionStatus === 'connected' ? 'primary.main' : 'neutral.dark',
+        }}
+      >
         <Typography variant="h6" mb={0.5}>
           Voltage Overview (Live)
         </Typography>

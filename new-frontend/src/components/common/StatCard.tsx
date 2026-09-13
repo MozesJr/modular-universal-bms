@@ -25,12 +25,25 @@ const StatCard = ({
         <Stack
           alignItems="center"
           justifyContent="center"
-          sx={{ width: 48, height: 48, borderRadius: 2, bgcolor: iconBgColor, flexShrink: 0 }}
+          // Full circle instead of a rounded square — same icon-badge
+          // pattern as before, just a livelier variant of it (no new
+          // color tokens).
+          sx={{ width: 48, height: 48, borderRadius: '50%', bgcolor: iconBgColor, flexShrink: 0 }}
         >
           <IconifyIcon icon={icon} sx={{ color: iconColor, fontSize: 24 }} />
         </Stack>
         <Stack>
-          <Typography variant="h4" color="primary.dark">
+          <Typography
+            variant="h4"
+            color="primary.dark"
+            sx={{
+              fontFamily: "'IBM Plex Mono', monospace",
+              fontVariantNumeric: 'tabular-nums',
+              // Same convention as the mono numeric columns in PacksList —
+              // a stat number should never wrap mid-value.
+              whiteSpace: 'nowrap',
+            }}
+          >
             {value}
           </Typography>
           <Typography variant="body2" color="neutral.main">

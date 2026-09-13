@@ -105,7 +105,7 @@ const AccountDropdown = () => {
           <Typography
             variant="subtitle2"
             textAlign="left"
-            color="primary.lighter"
+            color="primary.darker"
             sx={{ textTransform: 'capitalize' }}
           >
             {user?.role ?? ''}

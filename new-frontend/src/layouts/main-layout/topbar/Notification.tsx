@@ -6,7 +6,11 @@ const Notification = () => {
     <Button
       aria-label="notifications"
       sx={{
-        bgcolor: 'warning.light',
+        // Neutral container — this is a plain bell icon, not a status
+        // signal, so it shouldn't borrow the warning color. The small red
+        // dot below (Badge, themed in theme/components/Badge.tsx) is the
+        // actual "new notification" signal and stays error-colored.
+        bgcolor: 'neutral.light',
         p: { xs: 1, sm: 1.5 },
         minWidth: 'auto',
       }}
@@ -14,7 +18,7 @@ const Notification = () => {
       <Badge badgeContent=" " variant="dot">
         <IconifyIcon
           icon="clarity:notification-line"
-          sx={{ fontSize: 24, color: 'warning.main' }}
+          sx={{ fontSize: 24, color: 'neutral.darker' }}
         />
       </Badge>
     </Button>

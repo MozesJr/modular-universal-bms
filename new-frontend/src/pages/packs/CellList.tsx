@@ -46,6 +46,11 @@ interface CellRowProps {
   onClick: () => void;
 }
 
+const MONO_SX = {
+  fontFamily: "'IBM Plex Mono', monospace",
+  fontVariantNumeric: 'tabular-nums',
+} as const;
+
 const CellRow = ({ cellNo, live, onClick }: CellRowProps) => {
   const hasAlert = Boolean(live?.alerts.length);
 
@@ -55,13 +60,35 @@ const CellRow = ({ cellNo, live, onClick }: CellRowProps) => {
       alignItems="center"
       justifyContent="space-between"
       onClick={onClick}
+      // This row is a div, not a real <button> — role/tabIndex/onKeyDown
+      // make it keyboard-operable, and the explicit focus-visible ring
+      // below makes that keyboard focus actually visible (a plain div
+      // gets no default browser focus outline at all).
+      role="button"
+      tabIndex={0}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onClick();
+        }
+      }}
       sx={{
         py: 1.25,
-        px: 1,
+        pl: hasAlert ? 1.25 : 1.5,
+        pr: 1,
         cursor: 'pointer',
-        borderRadius: 2,
+        // A solid left bar rather than just a tinted background — readable
+        // at a glance/peripheral vision the way a real alarm panel row is,
+        // not just a subtle color wash.
+        borderLeft: hasAlert ? '4px solid' : 'none',
+        borderLeftColor: 'error.main',
         bgcolor: hasAlert ? 'error.lighter' : 'transparent',
         '&:hover': { bgcolor: hasAlert ? 'error.lighter' : 'neutral.lighter' },
+        '&:focus-visible': {
+          outline: '2px solid',
+          outlineColor: 'primary.main',
+          outlineOffset: -2,
+        },
       }}
     >
       <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 72 }}>
@@ -88,14 +115,14 @@ const CellRow = ({ cellNo, live, onClick }: CellRowProps) => {
             variant="body2"
             fontWeight={700}
             color={hasAlert ? 'error.main' : 'primary.dark'}
-            sx={{ minWidth: 64, textAlign: 'right' }}
+            sx={{ ...MONO_SX, minWidth: 64, textAlign: 'right' }}
           >
             {live.metrics.voltage.toFixed(3)} V
           </Typography>
           <Typography
             variant="body2"
             color="neutral.main"
-            sx={{ minWidth: 48, textAlign: 'right' }}
+            sx={{ ...MONO_SX, minWidth: 48, textAlign: 'right' }}
           >
             {live.metrics.temperature != null ? `${live.metrics.temperature.toFixed(1)}°C` : '—'}
           </Typography>

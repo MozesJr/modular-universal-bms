@@ -7,6 +7,7 @@ import Paper from './components/Paper';
 import Stack from './components/Stack';
 import AppBar from './components/AppBar';
 import Button from './components/Button';
+import ButtonBase from './components/ButtonBase';
 import ListItemButton from './components/ListItemButton';
 import ListItemText from './components/ListItemText';
 import ListItemIcon from './components/ListItemIcon';
@@ -41,6 +42,7 @@ export const theme = createTheme({
     MuiStack: Stack,
     MuiDrawer: Drawer,
 
+    MuiButtonBase: ButtonBase,
     MuiButton: Button,
     MuiListItemButton: ListItemButton,
     MuiListItemText: ListItemText,

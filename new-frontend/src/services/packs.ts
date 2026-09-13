@@ -1,3 +1,4 @@
+import { ChipProps } from '@mui/material';
 import api from './api';
 
 export type PackChemistry = 'LiFePO4' | 'Li-ion 18650' | 'NMC' | 'LCO' | 'Custom';
@@ -10,6 +11,36 @@ export const PACK_CHEMISTRIES: PackChemistry[] = [
   'LCO',
   'Custom',
 ];
+
+// Single source of truth for how `PackState` renders — shared by
+// PackReadoutStrip (Pack Detail) and PacksList so the same state never
+// shows two different colors/labels depending on which page you're on.
+// Keyed as Record<string, ...> (not Record<PackState, ...>) because Pack
+// Detail also indexes this with the live socket event's `state` field,
+// which is a plain string, not guaranteed to match the PackState union.
+export const PACK_STATE_LABEL: Record<string, string> = {
+  charging: 'Charging',
+  discharging: 'Discharging',
+  fault: 'Fault',
+  standby: 'Standby',
+  normal: 'Normal',
+};
+
+export const PACK_STATE_CHIP_COLOR: Record<string, ChipProps['color']> = {
+  charging: 'info',
+  discharging: 'warning',
+  fault: 'error',
+  standby: 'default',
+  normal: 'success',
+};
+
+export const PACK_STATE_ICON: Record<string, string> = {
+  charging: 'mdi:battery-charging-outline',
+  discharging: 'mdi:battery-arrow-down-outline',
+  fault: 'mdi:alert-circle-outline',
+  standby: 'mdi:battery-outline',
+  normal: 'mdi:battery-outline',
+};
 
 export interface PackCell {
   cell_no: number;

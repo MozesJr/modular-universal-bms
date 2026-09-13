@@ -11,6 +11,7 @@ import {
   Stack,
   TextField,
   Typography,
+  useTheme,
 } from '@mui/material';
 import { AxiosError } from 'axios';
 import { FormEvent, useEffect, useState } from 'react';
@@ -25,6 +26,7 @@ import { loadSlim } from '@tsparticles/slim';
 const checkBoxLabel = { inputProps: { 'aria-label': 'Checkbox' } };
 
 const SignUp = () => {
+  const theme = useTheme();
   const navigate = useNavigate();
   const { register } = useAuth();
   const [username, setUsername] = useState('');
@@ -95,9 +97,9 @@ const SignUp = () => {
               },
             },
             particles: {
-              color: { value: '#6366f1' },
+              color: { value: theme.palette.primary.main },
               links: {
-                color: '#818cf8',
+                color: theme.palette.primary.light,
                 distance: 150,
                 enable: true,
                 opacity: 0.3,

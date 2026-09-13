@@ -19,12 +19,28 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from 'contexts/AuthContext';
 import { useBmsList } from 'hooks/useBms';
 import { usePacksList } from 'hooks/usePacks';
-import { deletePack, Pack } from 'services/packs';
+import {
+  deletePack,
+  Pack,
+  PACK_STATE_CHIP_COLOR,
+  PACK_STATE_ICON,
+  PACK_STATE_LABEL,
+} from 'services/packs';
 import { getBmsAccessLevel } from 'services/bms';
 import { getErrorMessage } from 'helpers/utils';
 import paths, { packDetailPath } from 'routes/paths';
 import IconifyIcon from 'components/base/IconifyIcon';
 import PageLoader from 'components/loading/PageLoader';
+import StatusChip from 'components/common/StatusChip';
+
+const MONO_SX = {
+  fontFamily: "'IBM Plex Mono', monospace",
+  fontVariantNumeric: 'tabular-nums',
+  // A tabular numeric column wrapping mid-value defeats the point of
+  // tabular alignment — the table already scrolls horizontally
+  // (see the Box overflow:auto wrapper below), so let it widen instead.
+  whiteSpace: 'nowrap',
+} as const;
 
 const PacksList = () => {
   const { user } = useAuth();
@@ -93,8 +109,9 @@ const PacksList = () => {
                 <TableCell>Name</TableCell>
                 <TableCell>BMS Device</TableCell>
                 <TableCell>Chemistry</TableCell>
-                <TableCell>Cells</TableCell>
-                <TableCell>Capacity (Ah)</TableCell>
+                <TableCell align="right">Cells</TableCell>
+                <TableCell align="right">Voltage</TableCell>
+                <TableCell align="right">Capacity (Ah)</TableCell>
                 <TableCell>State</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
@@ -110,9 +127,20 @@ const PacksList = () => {
                 const canEdit = ['owner', 'admin', 'maintain'].includes(accessLevel);
                 const canDelete = ['owner', 'admin'].includes(accessLevel);
 
+                const stateKey = pack.state.toLowerCase();
+                const isFault = stateKey === 'fault';
+
                 return (
                   <TableRow key={pack._id} hover>
-                    <TableCell>{pack.pack_id}</TableCell>
+                    <TableCell
+                      sx={
+                        isFault
+                          ? { borderLeft: '4px solid', borderLeftColor: 'error.main' }
+                          : undefined
+                      }
+                    >
+                      {pack.pack_id}
+                    </TableCell>
                     <TableCell>
                       <MuiLink component={Link} to={packDetailPath(pack.pack_id)} underline="hover">
                         {pack.name}
@@ -120,9 +148,37 @@ const PacksList = () => {
                     </TableCell>
                     <TableCell>{parentBms?.name ?? pack.bms_id}</TableCell>
                     <TableCell>{pack.chemistry}</TableCell>
-                    <TableCell>{pack.cell_count}</TableCell>
-                    <TableCell>{pack.capacity_ah}</TableCell>
-                    <TableCell sx={{ textTransform: 'capitalize' }}>{pack.state}</TableCell>
+                    <TableCell align="right" sx={MONO_SX}>
+                      {pack.cell_count}
+                    </TableCell>
+                    <TableCell align="right" sx={MONO_SX}>
+                      {(pack.nominal_voltage * pack.cell_count).toFixed(3)} V
+                    </TableCell>
+                    <TableCell align="right" sx={MONO_SX}>
+                      {pack.capacity_ah.toFixed(1)}
+                    </TableCell>
+                    <TableCell>
+                      {/* variant="outlined" for the "default" (e.g.
+                          standby) case — Chip color="default" in this theme
+                          renders as a solid primary-teal fill (see
+                          theme/palette.ts's action.selected), which would
+                          make an idle state look brand-colored/active. */}
+                      <StatusChip
+                        label={PACK_STATE_LABEL[stateKey] ?? pack.state}
+                        color={PACK_STATE_CHIP_COLOR[stateKey] ?? 'default'}
+                        variant={
+                          (PACK_STATE_CHIP_COLOR[stateKey] ?? 'default') === 'default'
+                            ? 'outlined'
+                            : 'filled'
+                        }
+                        icon={
+                          <IconifyIcon
+                            icon={PACK_STATE_ICON[stateKey] ?? 'mdi:battery-outline'}
+                            sx={{ fontSize: 16 }}
+                          />
+                        }
+                      />
+                    </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                         <Tooltip title="View live cells">

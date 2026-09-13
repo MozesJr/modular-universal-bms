@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useBmsList } from 'hooks/useBms';
 import { usePacksList } from 'hooks/usePacks';
 import { BMS_STATUSES, BMS_STATUS_CHIP_COLOR } from 'services/bms';
+import { Pack } from 'services/packs';
 import paths from 'routes/paths';
 import IconifyIcon from 'components/base/IconifyIcon';
 import PageLoader from 'components/loading/PageLoader';
@@ -10,6 +11,24 @@ import StatCard from 'components/common/StatCard';
 import StatusChip from 'components/common/StatusChip';
 
 const statusLabel = (status: string) => status.replace(/_/g, ' ');
+
+type PackSeverity = 'critical' | 'warning' | null;
+
+// Derived purely from data Dashboard already fetches via usePacksList() —
+// `state`/`voltage_delta_mv`/`max_imbalance_mv` are REST fields, no live
+// socket data needed. Mirrors the severity language already used in Pack
+// Detail's AlertBanner: fault beats imbalance if both are present.
+const packSeverity = (bmsPacks: Pack[]): PackSeverity => {
+  let hasFault = false;
+  let hasImbalance = false;
+  bmsPacks.forEach((pack) => {
+    if (pack.state === 'fault') hasFault = true;
+    if (pack.voltage_delta_mv > pack.max_imbalance_mv) hasImbalance = true;
+  });
+  if (hasFault) return 'critical';
+  if (hasImbalance) return 'warning';
+  return null;
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -46,10 +65,14 @@ const Dashboard = () => {
   }
 
   // GET /api/packs already returns every pack the user can see in one call —
-  // grouping it here client-side avoids an N+1 request per BMS device.
-  const packCountByBmsId = new Map<string, number>();
+  // grouping it here client-side avoids an N+1 request per BMS device. Kept
+  // as full Pack objects (not just a count) so each device card can also
+  // read pack state/imbalance for its severity badge.
+  const packsByBmsId = new Map<string, Pack[]>();
   packs.forEach((pack) => {
-    packCountByBmsId.set(pack.bms_id, (packCountByBmsId.get(pack.bms_id) ?? 0) + 1);
+    const existing = packsByBmsId.get(pack.bms_id) ?? [];
+    existing.push(pack);
+    packsByBmsId.set(pack.bms_id, existing);
   });
 
   const statusCounts = new Map<string, number>();
@@ -82,7 +105,7 @@ const Dashboard = () => {
   }
 
   return (
-    <Stack spacing={4}>
+    <Stack spacing={3}>
       <Grid container spacing={3}>
         <Grid item xs={12} sm={6} md={3}>
           <StatCard icon="mdi:battery-outline" label="Total BMS Device" value={bmsDevices.length} />
@@ -103,10 +126,17 @@ const Dashboard = () => {
             </Typography>
             <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
               {BMS_STATUSES.filter((status) => statusCounts.has(status)).map((status) => (
+                // variant="outlined" for the "default" case (e.g.
+                // "rejected") — Chip color="default" in this theme renders
+                // as a solid primary-teal fill (see theme/palette.ts's
+                // action.selected), which would make that status look
+                // brand-colored/active instead of neutral. Same fix as
+                // PacksList/PackReadoutStrip/AlertsList/BmsList.
                 <StatusChip
                   key={status}
                   label={`${statusLabel(status)}: ${statusCounts.get(status)}`}
                   color={BMS_STATUS_CHIP_COLOR[status]}
+                  variant={BMS_STATUS_CHIP_COLOR[status] === 'default' ? 'outlined' : 'filled'}
                 />
               ))}
             </Stack>
@@ -130,48 +160,120 @@ const Dashboard = () => {
         </Stack>
 
         <Grid container spacing={3}>
-          {bmsDevices.map((bms) => (
-            <Grid item xs={12} sm={6} md={4} key={bms._id}>
-              <Paper sx={{ p: 3, height: 1 }}>
-                <Stack spacing={2} height={1}>
-                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
-                    <Box>
-                      <Typography variant="h6">{bms.name}</Typography>
-                      <Typography variant="body2" color="neutral.main">
-                        {bms.bms_id}
-                      </Typography>
-                    </Box>
-                    <StatusChip
-                      label={statusLabel(bms.status)}
-                      color={BMS_STATUS_CHIP_COLOR[bms.status]}
-                    />
+          {bmsDevices.map((bms) => {
+            const bmsPacks = packsByBmsId.get(bms.bms_id) ?? [];
+            const severity = packSeverity(bmsPacks);
+            // Device status (suspended) and pack-level severity both feed
+            // the same left-bar accent — suspended always reads critical
+            // regardless of its packs' own state.
+            const cardSeverity: PackSeverity = bms.status === 'suspended' ? 'critical' : severity;
+
+            return (
+              <Grid item xs={12} sm={6} md={4} key={bms._id}>
+                <Paper
+                  sx={{
+                    p: 3,
+                    height: 1,
+                    // Same left-bar accent as a Fault row in PacksList /
+                    // CellList — one consistent "this needs attention"
+                    // marker app-wide, not a new visual pattern.
+                    ...(cardSeverity && {
+                      borderLeft: '4px solid',
+                      borderLeftColor: cardSeverity === 'critical' ? 'error.main' : 'warning.main',
+                    }),
+                  }}
+                >
+                  <Stack spacing={2} height={1}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                      <Box>
+                        <Typography variant="h6">{bms.name}</Typography>
+                        <Typography variant="body2" color="neutral.main">
+                          {bms.bms_id}
+                        </Typography>
+                      </Box>
+                      {/* variant="outlined" for "rejected" (color="default")
+                          — see comment on the summary chips above for why. */}
+                      <StatusChip
+                        label={statusLabel(bms.status)}
+                        color={BMS_STATUS_CHIP_COLOR[bms.status]}
+                        variant={
+                          BMS_STATUS_CHIP_COLOR[bms.status] === 'default' ? 'outlined' : 'filled'
+                        }
+                      />
+                    </Stack>
+
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={1.5}
+                      flexWrap="wrap"
+                      useFlexGap
+                    >
+                      {/* Mini version of StatCard's circular icon badge —
+                          same visual language, smaller scale, so the
+                          pack count reads as data rather than a caption. */}
+                      <Stack
+                        direction="row"
+                        alignItems="center"
+                        spacing={1}
+                        sx={{
+                          pl: 0.5,
+                          pr: 1.5,
+                          py: 0.5,
+                          borderRadius: 999,
+                          bgcolor: 'primary.lighter',
+                        }}
+                      >
+                        <Stack
+                          alignItems="center"
+                          justifyContent="center"
+                          sx={{
+                            width: 24,
+                            height: 24,
+                            borderRadius: '50%',
+                            bgcolor: 'common.white',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <IconifyIcon
+                            icon="mdi:battery-charging-outline"
+                            sx={{ fontSize: 14, color: 'primary.main' }}
+                          />
+                        </Stack>
+                        <Typography variant="body2" color="primary.dark" fontWeight={600}>
+                          {bmsPacks.length} pack{bmsPacks.length === 1 ? '' : 's'}
+                        </Typography>
+                      </Stack>
+
+                      {/* Pack-level severity — separate from the device
+                          status chip above, which reflects Active/Pending/
+                          Suspended/Rejected, not any one pack's condition. */}
+                      {severity && (
+                        <StatusChip
+                          label={severity === 'critical' ? 'Pack Fault' : 'Pack Imbalanced'}
+                          color={severity === 'critical' ? 'error' : 'warning'}
+                          icon={
+                            <IconifyIcon icon="mdi:alert-circle-outline" sx={{ fontSize: 14 }} />
+                          }
+                        />
+                      )}
+                    </Stack>
+
+                    <Box flexGrow={1} />
+
+                    <Button
+                      variant="text"
+                      endIcon={<IconifyIcon icon="mdi:arrow-right" />}
+                      onClick={() => navigate(`${paths.packs}?bmsId=${bms.bms_id}`)}
+                      sx={{ alignSelf: 'flex-start' }}
+                    >
+                      Lihat Detail
+                    </Button>
                   </Stack>
-
-                  <Stack direction="row" alignItems="center" spacing={1}>
-                    <IconifyIcon
-                      icon="mdi:battery-charging-outline"
-                      sx={{ color: 'neutral.main' }}
-                    />
-                    <Typography variant="body2" color="neutral.main">
-                      {packCountByBmsId.get(bms.bms_id) ?? 0} pack
-                      {(packCountByBmsId.get(bms.bms_id) ?? 0) === 1 ? '' : 's'}
-                    </Typography>
-                  </Stack>
-
-                  <Box flexGrow={1} />
-
-                  <Button
-                    variant="text"
-                    endIcon={<IconifyIcon icon="mdi:arrow-right" />}
-                    onClick={() => navigate(`${paths.packs}?bmsId=${bms.bms_id}`)}
-                    sx={{ alignSelf: 'flex-start' }}
-                  >
-                    Lihat Detail
-                  </Button>
-                </Stack>
-              </Paper>
-            </Grid>
-          ))}
+                </Paper>
+              </Grid>
+            );
+          })}
         </Grid>
       </Box>
     </Stack>

@@ -9,6 +9,7 @@ import {
   Stack,
   TextField,
   Typography,
+  useTheme,
 } from '@mui/material';
 import { AxiosError } from 'axios';
 import { FormEvent, useEffect, useState } from 'react';
@@ -21,6 +22,7 @@ import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 
 const SignIn = () => {
+  const theme = useTheme();
   const navigate = useNavigate();
   const { login } = useAuth();
   const [username, setUsername] = useState('');
@@ -91,9 +93,9 @@ const SignIn = () => {
               },
             },
             particles: {
-              color: { value: '#6366f1' },
+              color: { value: theme.palette.primary.main },
               links: {
-                color: '#818cf8',
+                color: theme.palette.primary.light,
                 distance: 150,
                 enable: true,
                 opacity: 0.3,

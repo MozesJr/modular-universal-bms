@@ -113,9 +113,18 @@ const BmsList = () => {
                     <TableCell>{bms.bms_sernum ?? '—'}</TableCell>
                     <TableCell>{getBmsOwnerLabel(bms)}</TableCell>
                     <TableCell>
+                      {/* Chip color="default" in this theme renders as a
+                          solid primary-teal fill (MUI's base Chip style
+                          uses palette.action.selected for the "no color"
+                          case, which this app points at the brand accent) —
+                          outlined keeps "rejected" visually quiet instead of
+                          looking like an active/brand-colored status. */}
                       <StatusChip
                         label={bms.status.replace(/_/g, ' ')}
                         color={BMS_STATUS_CHIP_COLOR[bms.status]}
+                        variant={
+                          BMS_STATUS_CHIP_COLOR[bms.status] === 'default' ? 'outlined' : 'filled'
+                        }
                       />
                     </TableCell>
                     <TableCell align="right">

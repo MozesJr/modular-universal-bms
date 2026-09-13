@@ -1,7 +1,14 @@
 import { TypographyOptions } from '@mui/material/styles/createTypography';
 
+// UI/label typeface everywhere. Live telemetry numbers (voltage, SOC,
+// current, per-cell values) deliberately opt OUT of this into IBM Plex
+// Mono with tabular-nums instead — a monospace family keeps digit widths
+// fixed so a changing reading doesn't reflow its neighbors, the same
+// reason multimeters/oscilloscopes use fixed-width digit displays. That's
+// applied locally via sx on each telemetry value, not globally here, since
+// most of the app's text (labels, nav, body copy) is not telemetry.
 const typography: TypographyOptions = {
-  fontFamily: ['Poppins', 'Open Sans', 'Epilogue', 'sans-serif'].join(','),
+  fontFamily: ['IBM Plex Sans', 'sans-serif'].join(','),
 
   h1: {
     fontWeight: 600,
@@ -55,14 +62,12 @@ const typography: TypographyOptions = {
     fontWeight: 500,
     fontSize: '1rem', // 16px
     lineHeight: 1.5, // 24px
-    fontFamily: 'Poppins',
   },
 
   body2: {
     fontWeight: 400,
     fontSize: '0.8125rem', // 13px
     lineHeight: 1.2307, // 16px
-    fontFamily: 'Open Sans',
   },
 
   caption: {
@@ -73,7 +78,6 @@ const typography: TypographyOptions = {
 
   button: {
     textTransform: 'none',
-    fontFamily: 'Epilogue',
     fontWeight: 500,
     fontSize: '0.75rem', // 12px
     lineHeight: 1.025, // 12.3px

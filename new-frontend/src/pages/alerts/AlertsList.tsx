@@ -160,9 +160,30 @@ const AlertsList = () => {
                     : 'none';
                 const canAcknowledge = ['owner', 'admin', 'maintain'].includes(accessLevel);
 
+                // Unresolved + a genuinely critical type gets the same
+                // left-bar accent as a critical row in CellList/PacksList —
+                // one consistent "this needs attention" marker app-wide.
+                const isCriticalActive =
+                  !alertLog.resolved && ALERT_TYPE_CHIP_COLOR[alertLog.type] === 'error';
+
                 return (
-                  <TableRow key={alertLog._id} hover>
-                    <TableCell>{new Date(alertLog.timestamp).toLocaleString()}</TableCell>
+                  <TableRow
+                    key={alertLog._id}
+                    hover
+                    // Resolved rows fade so unresolved ones keep the
+                    // attention — same silence-means-normal principle
+                    // applied at the row level, not just the chip.
+                    sx={{ opacity: alertLog.resolved ? 0.55 : 1 }}
+                  >
+                    <TableCell
+                      sx={
+                        isCriticalActive
+                          ? { borderLeft: '4px solid', borderLeftColor: 'error.main' }
+                          : undefined
+                      }
+                    >
+                      {new Date(alertLog.timestamp).toLocaleString()}
+                    </TableCell>
                     <TableCell>{bms?.name ?? pack?.bms_id ?? '—'}</TableCell>
                     <TableCell>{pack?.name ?? alertLog.pack_id}</TableCell>
                     <TableCell>{alertLog.cell_id === 0 ? 'Pack' : alertLog.cell_id}</TableCell>
@@ -173,9 +194,22 @@ const AlertsList = () => {
                       />
                     </TableCell>
                     <TableCell>
+                      {/* Acknowledged alerts go quiet (neutral grey
+                          outline) rather than success-green — an
+                          acknowledged alert isn't a "good" state to
+                          highlight, it's just resolved history. Keeping it
+                          colored would compete with still-active alerts for
+                          attention. Same silence-means-normal principle as
+                          Pack Detail. variant="outlined" specifically:
+                          Chip color="default" filled in this theme renders
+                          as a solid primary-teal fill (see
+                          theme/palette.ts's action.selected), which would
+                          look brand-colored/active — the opposite of what
+                          "quiet" means here. */}
                       <StatusChip
                         label={alertLog.resolved ? 'Acknowledged' : 'Unacknowledged'}
-                        color={alertLog.resolved ? 'success' : 'warning'}
+                        color={alertLog.resolved ? 'default' : 'warning'}
+                        variant={alertLog.resolved ? 'outlined' : 'filled'}
                       />
                     </TableCell>
                     <TableCell align="right">

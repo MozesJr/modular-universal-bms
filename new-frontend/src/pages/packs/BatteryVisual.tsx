@@ -81,7 +81,10 @@ const BatteryVisual = ({ soc }: BatteryVisualProps) => {
             variant="h5"
             fontWeight={700}
             color="primary.dark"
-            sx={{ textShadow: '0 0 6px rgba(255,255,255,0.9)' }}
+            sx={{
+              fontFamily: "'IBM Plex Mono', monospace",
+              textShadow: '0 0 6px rgba(255,255,255,0.9)',
+            }}
           >
             {soc != null ? `${soc.toFixed(0)}%` : '—'}
           </Typography>
