@@ -294,7 +294,12 @@ const PackDetail = () => {
 
       <AlertBanner severity={bannerSeverity} issues={bannerIssues} />
 
-      <Grid container spacing={3}>
+      {/* alignItems stretch (Grid's default) is only wanted once
+          Battery/Gauges are genuinely side-by-side (md+) — below that
+          they're stacked full-width, and stretch would still force
+          PackGauges' height:1 chain to match BatteryVisual's card height,
+          leaving each gauge panel with a large blank gap under its content. */}
+      <Grid container spacing={3} sx={{ alignItems: { xs: 'flex-start', md: 'stretch' } }}>
         <Grid item xs={12} md={4}>
           <BatteryVisual soc={packSoc} />
         </Grid>

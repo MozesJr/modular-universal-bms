@@ -1,5 +1,6 @@
 import { Alert, Box, Button, Grid, Paper, Stack, Typography } from '@mui/material';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAlerts } from 'hooks/useAlerts';
 import { useBmsList } from 'hooks/useBms';
 import { usePacksList } from 'hooks/usePacks';
 import { BMS_STATUSES, BMS_STATUS_CHIP_COLOR } from 'services/bms';
@@ -9,8 +10,14 @@ import IconifyIcon from 'components/base/IconifyIcon';
 import PageLoader from 'components/loading/PageLoader';
 import StatCard from 'components/common/StatCard';
 import StatusChip from 'components/common/StatusChip';
+import FleetHealthRow from './FleetHealthRow';
+import PackVoltageRangeGrid from './PackVoltageRangeGrid';
 
 const statusLabel = (status: string) => status.replace(/_/g, ' ');
+
+// Shared with FleetHealthRow's alertsFetchLimit prop, so the "N+" fallback
+// stays in sync with what was actually requested here.
+const ALERTS_FETCH_LIMIT = 200;
 
 type PackSeverity = 'critical' | 'warning' | null;
 
@@ -44,12 +51,22 @@ const Dashboard = () => {
     error: packsError,
     refetch: refetchPacks,
   } = usePacksList();
+  // Same endpoint AlertsList.tsx already uses — Fleet Health's "Active
+  // Alerts" panel just needed Dashboard to also call it. A generous limit
+  // since this is a fleet-wide count/breakdown, not a paginated list.
+  const {
+    data: alerts,
+    isLoading: isLoadingAlerts,
+    error: alertsError,
+    refetch: refetchAlerts,
+  } = useAlerts({ limit: ALERTS_FETCH_LIMIT });
 
-  const isLoading = isLoadingBms || isLoadingPacks;
-  const error = bmsError ?? packsError;
+  const isLoading = isLoadingBms || isLoadingPacks || isLoadingAlerts;
+  const error = bmsError ?? packsError ?? alertsError;
   const refetch = () => {
     refetchBms();
     refetchPacks();
+    refetchAlerts();
   };
 
   if (isLoading) {
@@ -143,6 +160,22 @@ const Dashboard = () => {
           </Paper>
         </Grid>
       </Grid>
+
+      <Box>
+        <Typography variant="h6" mb={2}>
+          Fleet Health
+        </Typography>
+        <FleetHealthRow packs={packs} alerts={alerts} alertsFetchLimit={ALERTS_FETCH_LIMIT} />
+      </Box>
+
+      {packs.length > 0 && (
+        <Box>
+          <Typography variant="h6" mb={2}>
+            Pack Voltage Range
+          </Typography>
+          <PackVoltageRangeGrid packs={packs} />
+        </Box>
+      )}
 
       <Box>
         <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
