@@ -190,10 +190,10 @@ const int NUM_CELLS = sizeof(CELL_PINS) / sizeof(CELL_PINS[0]);
 // Rasio divider teoritis per titik pengukuran kumulatif (node 1..4 dari stack).
 // Ini titik awal berdasar desain resistor divider kamu.
 const float DIVIDER_RATIOS[] = {
-    3.8,  // Cell 1 (GPIO36)
-    3.8,  // Cell 2 (GPIO39)
-    3.85,  // Cell 3 (GPIO34)
-    3.92   // Cell 4 (GPIO35)
+    3.9,  // Cell 1 (GPIO36)
+    3.92,  // Cell 2 (GPIO39)
+    3.95,  // Cell 3 (GPIO34)
+    3.98   // Cell 4 (GPIO35)
 };
 
 // ---- KALIBRASI PER CELL ----

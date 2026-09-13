@@ -1,30 +1,31 @@
-import {
-  Alert,
-  Box,
-  Button,
-  Grid,
-  Paper,
-  Skeleton,
-  Snackbar,
-  Stack,
-  Typography,
-} from '@mui/material';
+import { Alert, Box, Button, Grid, Paper, Snackbar, Stack, Typography } from '@mui/material';
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import * as echarts from 'echarts/core';
-import { LineChart } from 'echarts/charts';
+import { GaugeChart, LineChart } from 'echarts/charts';
 import { GridComponent, LegendComponent, TooltipComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { usePack } from 'hooks/usePacks';
 import { CellUpdateEvent, ConnectionStatus, usePackRealtime } from 'hooks/usePackRealtime';
 import { ALERT_TYPE_LABELS, AlertType } from 'services/alerts';
 import paths from 'routes/paths';
-import IconifyIcon from 'components/base/IconifyIcon';
 import PageLoader from 'components/loading/PageLoader';
 import StatusChip from 'components/common/StatusChip';
+import StatCard from 'components/common/StatCard';
 import ReactEchart from 'components/base/ReactEhart';
+import BatteryVisual from './BatteryVisual';
+import PackGauges from './PackGauges';
+import PackStatusRow from './PackStatusRow';
+import CellList from './CellList';
 
-echarts.use([LineChart, GridComponent, LegendComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([
+  LineChart,
+  GaugeChart,
+  GridComponent,
+  LegendComponent,
+  TooltipComponent,
+  CanvasRenderer,
+]);
 
 // Modal per-cell tetap lazy -- meski echarts core sekarang sudah ke-load
 // duluan lewat grafik gabungan di halaman ini, komponen dialog-nya sendiri
@@ -134,6 +135,77 @@ const PackDetail = () => {
 
   const hasChartData = totalVoltageSeries.length > 0 || Object.keys(cellVoltageSeries).length > 0;
 
+  // Most recent event across ALL cells (not just one) — pack_metrics, state,
+  // imbalance and voltage delta are computed server-side and stamped on
+  // every cell event identically, so any one of them reflects the pack as
+  // a whole as of that timestamp.
+  const latestEvent = useMemo<CellUpdateEvent | null>(() => {
+    let latest: CellUpdateEvent | null = null;
+    for (const event of cells.values()) {
+      if (!latest || new Date(event.timestamp).getTime() > new Date(latest.timestamp).getTime()) {
+        latest = event;
+      }
+    }
+    return latest;
+  }, [cells]);
+
+  const avgCellVoltage = useMemo(() => {
+    if (cells.size === 0) return null;
+    let sum = 0;
+    cells.forEach((event) => {
+      sum += event.metrics.voltage;
+    });
+    return sum / cells.size;
+  }, [cells]);
+
+  // Fallback average of per-cell SoC — the ESP32 firmware
+  // (bms-esp32-node/src/main.cpp) never publishes a pack-level `pack_soc`,
+  // so `pack_metrics.soc` from the backend is always null for this
+  // hardware. Per-cell `metrics.soc` is never null though: the backend
+  // OCV-estimates it from cell voltage whenever the device doesn't report
+  // one (see estimateSocFromVoltage in backend/src/services/bmsAlgorithm.js),
+  // so this average is real derived data, not a placeholder.
+  const avgCellSoc = useMemo(() => {
+    let sum = 0;
+    let count = 0;
+    cells.forEach((event) => {
+      if (event.metrics.soc != null) {
+        sum += event.metrics.soc;
+        count += 1;
+      }
+    });
+    return count > 0 ? sum / count : null;
+  }, [cells]);
+
+  const packSoc = latestEvent?.pack_metrics.soc ?? avgCellSoc;
+  // Same reasoning as avgCellSoc: firmware never sends `pack_voltage`, so
+  // fall back to the same cell-voltage sum already computed for the
+  // chart's "Total (V)" line (only populated once every cell has reported).
+  const derivedPackVoltage =
+    totalVoltageSeries.length > 0 ? totalVoltageSeries[totalVoltageSeries.length - 1][1] : null;
+  const packVoltage = latestEvent?.pack_metrics.voltage ?? derivedPackVoltage;
+  // Current has no fallback: the firmware has no current sensor at all, so
+  // unlike voltage/SoC there is no real per-cell data to derive it from —
+  // showing "—" here is honest, not a bug. Faking a value (e.g. 0) would be
+  // actively misleading, so this intentionally stays null until the
+  // hardware/firmware actually measures current.
+  const packCurrent = latestEvent?.pack_metrics.current ?? null;
+  // Derived from voltage/current above, so it only ever resolves once
+  // current is real — i.e. never, on hardware without a current sensor.
+  const packPower = packVoltage != null && packCurrent != null ? packVoltage * packCurrent : null;
+  const packImbalanced = latestEvent?.pack_imbalanced ?? null;
+  const cellDeltaMv = latestEvent?.pack_voltage_delta_mv ?? null;
+  const lastUpdate = latestEvent?.timestamp ?? null;
+  // No live event yet right after opening the page: fall back to the
+  // pack's last known REST state instead of leaving the status row blank.
+  const packStateLabel = latestEvent?.state ?? pack?.state ?? 'normal';
+
+  const gaugeRanges = useMemo(() => {
+    const maxVoltage = pack ? pack.max_voltage * pack.cell_count : 0;
+    const maxCurrent = pack?.max_current_amps ?? 0;
+    return { maxVoltage, maxCurrent, maxPower: maxVoltage * maxCurrent };
+  }, [pack]);
+
   const overviewOption = useMemo(
     () => ({
       tooltip: { trigger: 'axis' },
@@ -198,6 +270,61 @@ const PackDetail = () => {
         </Stack>
       </Paper>
 
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={4}>
+          <BatteryVisual soc={packSoc} />
+        </Grid>
+        <Grid item xs={12} md={8}>
+          <PackGauges
+            voltage={packVoltage}
+            current={packCurrent}
+            power={packPower}
+            maxVoltage={gaugeRanges.maxVoltage}
+            maxCurrent={gaugeRanges.maxCurrent}
+            maxPower={gaugeRanges.maxPower}
+          />
+        </Grid>
+      </Grid>
+
+      <PackStatusRow state={packStateLabel} imbalanced={packImbalanced} />
+
+      <Grid container spacing={2}>
+        <Grid item xs={6} sm={3}>
+          <StatCard
+            icon="mdi:battery-outline"
+            label="Avg Cell Voltage"
+            value={avgCellVoltage != null ? `${avgCellVoltage.toFixed(3)} V` : '—'}
+          />
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <StatCard
+            icon="mdi:swap-vertical"
+            label="Cell Delta"
+            value={cellDeltaMv != null ? `${cellDeltaMv.toFixed(1)} mV` : '—'}
+            iconColor="secondary.main"
+            iconBgColor="secondary.lighter"
+          />
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <StatCard
+            icon="mdi:refresh"
+            label="Life Cycle"
+            value={pack.cycle_count}
+            iconColor="success.main"
+            iconBgColor="success.lighter"
+          />
+        </Grid>
+        <Grid item xs={6} sm={3}>
+          <StatCard
+            icon="mdi:clock-outline"
+            label="Last Update"
+            value={lastUpdate ? new Date(lastUpdate).toLocaleTimeString() : '—'}
+            iconColor="warning.main"
+            iconBgColor="warning.lighter"
+          />
+        </Grid>
+      </Grid>
+
       <Paper sx={{ p: 3 }}>
         <Typography variant="h6" mb={0.5}>
           Voltage Overview (Live)
@@ -230,22 +357,7 @@ const PackDetail = () => {
         )}
       </Paper>
 
-      <Box>
-        <Typography variant="h6" mb={2}>
-          Cells
-        </Typography>
-        <Grid container spacing={2}>
-          {cellNumbers.map((cellNo) => (
-            <Grid item xs={6} sm={4} md={3} lg={2} key={cellNo}>
-              <CellCard
-                cellNo={cellNo}
-                live={cells.get(cellNo)}
-                onClick={() => setSelectedCellNo(cellNo)}
-              />
-            </Grid>
-          ))}
-        </Grid>
-      </Box>
+      <CellList cellNumbers={cellNumbers} cells={cells} onSelectCell={setSelectedCellNo} />
 
       {selectedCellNo !== null && (
         <Suspense fallback={null}>
@@ -270,61 +382,6 @@ const PackDetail = () => {
         </Alert>
       </Snackbar>
     </Stack>
-  );
-};
-
-interface CellCardProps {
-  cellNo: number;
-  live?: CellUpdateEvent;
-  onClick: () => void;
-}
-
-const CellCard = ({ cellNo, live, onClick }: CellCardProps) => {
-  const hasAlert = Boolean(live?.alerts.length);
-
-  return (
-    <Paper
-      onClick={onClick}
-      sx={{
-        p: 2,
-        border: '2px solid',
-        borderColor: hasAlert ? 'error.main' : 'transparent',
-        cursor: 'pointer',
-        transition: 'box-shadow 0.15s',
-        '&:hover': { boxShadow: 4 },
-      }}
-    >
-      <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
-        <Typography variant="subtitle2" color="neutral.main">
-          Cell {cellNo}
-        </Typography>
-        <Stack direction="row" spacing={0.5} alignItems="center">
-          {hasAlert && <IconifyIcon icon="mdi:alert-circle" sx={{ color: 'error.main' }} />}
-          <IconifyIcon icon="mdi:chart-line" sx={{ color: 'neutral.main', fontSize: 18 }} />
-        </Stack>
-      </Stack>
-
-      {!live ? (
-        <>
-          <Skeleton variant="text" width="70%" height={36} />
-          <Skeleton variant="text" width="50%" />
-        </>
-      ) : (
-        <>
-          <Typography variant="h5" color="primary.dark">
-            {live.metrics.voltage.toFixed(3)} V
-          </Typography>
-          <Typography variant="body2" color="neutral.main">
-            {live.metrics.temperature != null ? `${live.metrics.temperature.toFixed(1)}°C` : '—'}
-            {' · SoC '}
-            {live.metrics.soc != null ? `${live.metrics.soc.toFixed(0)}%` : '—'}
-          </Typography>
-          <Typography variant="caption" color="neutral.main">
-            {new Date(live.timestamp).toLocaleTimeString()}
-          </Typography>
-        </>
-      )}
-    </Paper>
   );
 };
 
